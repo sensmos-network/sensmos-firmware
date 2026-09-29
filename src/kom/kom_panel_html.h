@@ -60,6 +60,7 @@ nav.on{display:flex}nav a{flex:1;text-align:center;padding:14px 4px;color:var(--
 
 <section id="s-start"><div class="card"><label>ID urządzenia</label><div class="big" id="id8"></div>
 <label>Odcisk klucza</label><div class="mono" id="fp"></div></div>
+<div class="card"><h2>Wiadomości z konta</h2><div id="inb"></div></div>
 <div class="card" id="st"></div>
 <div class="card"><label>Pasmo 868.1 w ostatniej godzinie</label><div id="dt"></div><div class="bar"><i id="db"></i></div>
 <button class="sec" onclick="hello()">Wyślij HELLO teraz</button></div></section>
@@ -125,6 +126,7 @@ const ago=ST.hello_ago_s==null?'jeszcze nie':Math.floor(ST.hello_ago_s/60)+' min
 $('st').innerHTML=[['Radio',ST.radio?'OK ('+ST.board+')':'brak'],['Self-test',ST.selftest?'OK':'BŁĄD — nie nadaje'],['HELLO',ST.hello_n+', '+ago],
 ['Odebrane ramki',ST.rx_n+(ST.rx_n?', ostatnia '+Math.round(ST.rx_rssi)+' dBm':'')],['Widoczność',ST.vis==255?'nie wybrano':VIS[ST.vis][0]],
 ['Oprogramowanie',ST.fw]].map(r=>`<div class="row"><span>${r[0]}</span><span>${r[1]}</span></div>`).join('');
+$('inb').innerHTML=(ST.inbox||[]).map(m=>`<div class="row"><span>${m.text.replace(/</g,'&lt;')}</span><span>${Math.floor(m.ago_s/60)} min</span></div>`).join('')||'<p class="h">Brak — napisz z apki Sensmos.</p>';
 $('dt').textContent=(ST.duty_ms/1000).toFixed(1)+' s z '+(ST.duty_max/1000)+' s';$('db').style.width=Math.min(100,100*ST.duty_ms/ST.duty_max)+'%'}
 async function fill(){await load();$('nm').value=ST.name||'';visBox('visbox2',ST.vis);$('ws').value=ST.wifi.ssid||'';
 $('lanh').textContent=ST.wifi.ssid?(ST.wifi.lan_ip?'Połączono: http://'+ST.wifi.lan_ip+' albo http://'+ST.wifi.host:'Łączę z „'+ST.wifi.ssid+'”…'):'Po zapisaniu panel będzie dostępny też w Twojej sieci domowej.';

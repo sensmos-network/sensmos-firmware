@@ -191,6 +191,10 @@ static void h_status() {
     d["hello_n"] = st.hello_n;
     if (st.hello_ago_s != UINT32_MAX) d["hello_ago_s"] = st.hello_ago_s;
     d["rx_n"] = st.rx_n; d["rx_rssi"] = st.rx_rssi;
+    JsonArray in = d["inbox"].to<JsonArray>();
+    const KomMsg* m;
+    uint8_t mn = kom_inbox(&m);
+    for (int i = 0; i < mn; i++) { JsonObject o = in.add<JsonObject>(); o["text"] = m[i].text; o["ago_s"] = (millis() - m[i].at) / 1000; }
     JsonArray t = d["tpl"].to<JsonArray>();
     for (int i = 0; i < g_set.tpl_n; i++) t.add(g_set.tpl[i]);
     JsonObject w = d["wifi"].to<JsonObject>();

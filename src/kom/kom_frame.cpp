@@ -87,4 +87,51 @@ size_t kom_build_acct(uint8_t* out, const uint8_t id4[4], const uint8_t knet[32]
     return seal(out, n, knet);
 }
 
+static void acct_keys(const uint8_t knet[32], const char* label, uint8_t okm[64]) {
+    uint8_t salt[32] = {0};
+    mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), salt, 32, knet, 32,
+                 (const uint8_t*)label, strlen(label), okm, 64);
+}
+
+bool kom_open_down(const uint8_t* f, size_t n, const uint8_t id4[4], const uint8_t knet[32],
+                   uint32_t* ctr, char* text, size_t cap) {
+    // nagłówek 15 + nonce 8 + ≥1 + tag 8 + bcode 4
+    if (n < 36 || n > KOM_FRAME_MAX || f[0] != 0xE0 || f[1] != 0x04 || f[2] != KOM_MODE_PRIV) return false;
+    if (memcmp(f + 3, id4, 4) || memcmp(f + 7, id4, 4)) return false;
+    uint8_t mac[32], okm[64];
+    kom_hmac(knet, 32, f, n - 4, mac);
+    if (memcmp(mac, f + n - 4, 4)) return false;
+    acct_keys(knet, "sensmos-ldev-acct-dn-v1", okm);
+    kom_hmac(okm + 32, 32, f, n - 12, mac);
+    bool ok = !memcmp(mac, f + n - 12, 8);
+    size_t tl = n - 15 - 8 - 12;
+    if (ok && tl < cap) {
+        uint8_t iv[16] = {0}, sb[16];
+        size_t off = 0;
+        memcpy(iv, f + 15, 8);
+        memcpy(iv + 8, id4, 4);
+        mbedtls_aes_context aes;
+        mbedtls_aes_init(&aes);
+        mbedtls_aes_setkey_enc(&aes, okm, 256);
+        mbedtls_aes_crypt_ctr(&aes, tl, &off, iv, sb, f + 23, (uint8_t*)text);
+        mbedtls_aes_free(&aes);
+        text[tl] = 0;
+        *ctr = ((uint32_t)f[11] << 24) | ((uint32_t)f[12] << 16) | ((uint32_t)f[13] << 8) | f[14];
+    } else ok = false;
+    memset(okm, 0, sizeof(okm));
+    return ok;
+}
+
+size_t kom_build_ack(uint8_t* out, const uint8_t id4[4], const uint8_t knet[32], uint32_t ctr, uint32_t ref) {
+    size_t n = header(out, KOM_MODE_ACK, id4, id4, ctr);
+    out[n++] = ref >> 24; out[n++] = ref >> 16; out[n++] = ref >> 8; out[n++] = ref;
+    uint8_t okm[64], mac[32];
+    acct_keys(knet, "sensmos-ldev-acct-v1", okm);
+    kom_hmac(okm + 32, 32, out, n, mac);
+    memcpy(out + n, mac, 8);
+    n += 8;
+    memset(okm, 0, sizeof(okm));
+    return seal(out, n, knet);
+}
+
 #endif

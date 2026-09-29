@@ -9,6 +9,7 @@
 #include "kom_panel.h"
 #include "kom_fixture.h"
 #include <Arduino.h>
+#include <Preferences.h>
 
 static bool     s_selftest = false;
 static char     s_id8[9], s_fp[20];
@@ -42,7 +43,13 @@ static bool selftest() {
     n = kom_build_hello(f, pub, h, knet, 7, 0, true, own, nullptr);
     if (n != sizeof(KOMT_HELLO_PAIR) || memcmp(f, KOMT_HELLO_PAIR, n)) return false;
     n = kom_build_acct(f, h, knet, 6, "kod:ALARM", false, KOMT_NONCE);
-    return n == sizeof(KOMT_ACCT) && !memcmp(f, KOMT_ACCT, n);
+    if (n != sizeof(KOMT_ACCT) || memcmp(f, KOMT_ACCT, n)) return false;
+    uint32_t dctr = 0;
+    char txt[101];
+    if (!kom_open_down(KOMT_DOWN, sizeof(KOMT_DOWN), h, knet, &dctr, txt, sizeof(txt)) || dctr != 1 ||
+        strcmp(txt, KOMT_DOWN_TEXT)) return false;
+    n = kom_build_ack(f, h, knet, 8, 1);
+    return n == sizeof(KOMT_ACCT_ACK) && !memcmp(f, KOMT_ACCT_ACK, n);
 }
 
 KomStats kom_stats() {
@@ -131,7 +138,54 @@ static void hello_tick(uint32_t now) {
     s_next_short = now + KOM_HELLO_EVERY_MS;
 }
 
-static void rx_tick() {
+static void flash_msg(uint32_t now, const char* l1, const char* l2) {
+    kom_ui_msg(l1, l2);
+    s_msg_until = now + 2500;
+}
+
+// ── wiadomości z konta ───────────────────────────────────────────────
+// Ochrona przed powtórką nagranej ramki: najwyższy przyjęty licznik (NVS) + okno 64 w RAM.
+static KomMsg   s_inbox[5];
+static uint8_t  s_inbox_n = 0;
+static uint32_t s_dn_hi = 0;
+static uint64_t s_dn_win = 0;
+
+uint8_t kom_inbox(const KomMsg** out) { *out = s_inbox; return s_inbox_n; }
+
+static bool dn_fresh(uint32_t ctr) {
+    if (ctr > s_dn_hi) {
+        uint32_t sh = ctr - s_dn_hi;
+        s_dn_win = sh >= 64 ? 1 : (s_dn_win << sh) | 1;
+        s_dn_hi = ctr;
+        Preferences p; p.begin("sensmos_kom", false); p.putUInt("dnhi", s_dn_hi); p.end();
+        return true;
+    }
+    uint32_t d = s_dn_hi - ctr;
+    if (d >= 64 || (s_dn_win & (1ULL << d))) return false;
+    s_dn_win |= 1ULL << d;
+    return true;
+}
+
+static void on_down(const uint8_t* b, size_t n, uint32_t now) {
+    uint32_t ctr;
+    char text[101];
+    if (!kom_open_down(b, n, g_kom.id4, g_kom.knet, &ctr, text, sizeof(text))) return;
+    bool fresh = dn_fresh(ctr);
+    if (fresh) {
+        memmove(s_inbox + 1, s_inbox, sizeof(KomMsg) * 4);
+        strlcpy(s_inbox[0].text, text, sizeof(s_inbox[0].text));
+        s_inbox[0].at = now;
+        if (s_inbox_n < 5) s_inbox_n++;
+        Serial.printf("[kom] wiadomosc z konta ctr %lu: %s\n", (unsigned long)ctr, text);
+        flash_msg(now, "Wiadomosc:", text);
+    }
+    uint8_t f[KOM_FRAME_MAX];
+    size_t an = kom_build_ack(f, g_kom.id4, g_kom.knet, kom_ctr_next(), ctr);   // także dla powtórki — serwer przestanie ponawiać
+    int32_t r = send_up(f, an);
+    Serial.printf("[kom] ACK ctr %lu%s: %ld\n", (unsigned long)ctr, fresh ? "" : " (powtorka)", (long)r);
+}
+
+static void rx_tick(uint32_t now) {
     uint8_t b[256];
     size_t n; float rssi, snr;
     if (!kom_radio_poll(b, sizeof(b), &n, &rssi, &snr)) return;
@@ -139,12 +193,9 @@ static void rx_tick() {
     bool mine = n >= 19 && b[0] == 0xE0 && b[1] == 0x04 && !memcmp(b + 3, g_kom.id4, 4);
     Serial.printf("[kom] RX %u B, RSSI %.0f, SNR %.1f, %02x %02x%s\n", (unsigned)n, rssi, snr, b[0], n > 1 ? b[1] : 0,
                   mine ? " -> DO MNIE" : "");
+    if (mine && !memcmp(b + 7, g_kom.id4, 4)) on_down(b, n, now);
 }
 
-static void flash_msg(uint32_t now, const char* l1, const char* l2) {
-    kom_ui_msg(l1, l2);
-    s_msg_until = now + 2500;
-}
 
 static void send_template(uint32_t now) {
     if (!g_set.tpl_n) return flash_msg(now, "Brak szablonu", "ustaw w panelu");
@@ -227,6 +278,7 @@ void kom_setup() {
     kom_radio_init();
     if (!kom_id_init(kom_radio_random)) { s_selftest = false; Serial.println("[kom] klucz: blad"); }
     kom_store_load();
+    { Preferences p; p.begin("sensmos_kom", true); s_dn_hi = p.getUInt("dnhi", 0); p.end(); }
     kom_id8(s_id8);
     kom_fingerprint(s_fp);
     s_next_full  = KOM_HELLO_FULL_MS;
@@ -239,7 +291,7 @@ void kom_loop() {
     button_tick(now);
     serial_tick();
     kom_panel_tick();
-    rx_tick();
+    rx_tick(now);
     hello_tick(now);
     pair_tick(now);
     if (due(now, s_msg_until) && due(now, s_draw_at)) {

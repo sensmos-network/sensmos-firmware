@@ -22,3 +22,10 @@ size_t kom_build_hello(uint8_t* out, const uint8_t pub[32], const uint8_t id4[4]
 bool   kom_text_ok(const char* t);
 size_t kom_build_acct(uint8_t* out, const uint8_t id4[4], const uint8_t knet[32], uint32_t ctr,
                       const char* text, bool alert, const uint8_t* nonce);
+
+// Wiadomość z konta do urządzenia (klucz „acct-dn”): sprawdza nagłówek, bcode i tag, odszyfrowuje.
+// text: bufor ≥ 101 B, zakończony zerem. Zwraca false dla cudzej albo podrobionej ramki.
+bool   kom_open_down(const uint8_t* f, size_t n, const uint8_t id4[4], const uint8_t knet[32],
+                     uint32_t* ctr, char* text, size_t cap);
+// Potwierdzenie odbioru (tryb 3, dst4 = src4, ref = licznik downlinku), klucz „acct”.
+size_t kom_build_ack(uint8_t* out, const uint8_t id4[4], const uint8_t knet[32], uint32_t ctr, uint32_t ref);

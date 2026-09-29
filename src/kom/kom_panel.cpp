@@ -31,6 +31,29 @@ static char       s_lan_ip[16] = "";
 static uint8_t    s_fails = 0;
 static uint32_t   s_locked_until = 0;
 
+// Sieci widziane przez urządzenie — lista do wyboru na stronie pierwszego uruchomienia.
+struct Net { char ssid[33]; int8_t rssi; bool lock; };
+static Net        s_nets[20];
+static uint8_t    s_nets_n = 0;
+static bool       s_scanning = false;
+static uint32_t   s_join_at = 0;              // połącz z LAN chwilę po odpowiedzi (strona zdąży ją pokazać)
+
+static void take_scan(int n) {
+    s_nets_n = 0;
+    for (int i = 0; i < n && s_nets_n < 20; i++) {
+        String ss = WiFi.SSID(i);
+        if (!ss.length()) continue;
+        bool dup = false;
+        for (int j = 0; j < s_nets_n; j++) if (ss == s_nets[j].ssid) { dup = true; if (WiFi.RSSI(i) > s_nets[j].rssi) s_nets[j].rssi = WiFi.RSSI(i); }
+        if (dup) continue;
+        Net& e = s_nets[s_nets_n++];
+        strlcpy(e.ssid, ss.c_str(), sizeof(e.ssid));
+        e.rssi = WiFi.RSSI(i);
+        e.lock = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
+    }
+    WiFi.scanDelete();
+}
+
 static const uint32_t LAN_WAIT_MS = 45000, AP_AFTER_LAN_MS = 60000;
 static const IPAddress AP_IP(192, 168, 4, 1);
 
@@ -89,6 +112,22 @@ static void h_id() {
     d["kom"] = 1; d["id8"] = id8; d["fp"] = fp; d["fw"] = KOM_FW_VERSION; d["name"] = g_set.name;
     d["pin_set"] = g_set.pin_set; d["vis"] = g_set.vis;
     d["wifi_set"] = g_set.wifi_ssid[0] != 0; d["lan_ip"] = s_lan_ip;
+    wl_status_t st = WiFi.status();
+    d["lan"] = s_lan_ip[0] ? "ok" : !g_set.wifi_ssid[0] ? "none"
+             : st == WL_CONNECT_FAILED ? "bad_pass" : st == WL_NO_SSID_AVAIL ? "no_ssid" : "connecting";
+    reply(200, d);
+}
+
+// Lista sieci; ?refresh=1 odpala skan w tle (strona dopytuje, aż scanning = false).
+static void h_scan() {
+    if (s_web.hasArg("refresh") && !s_scanning) { WiFi.scanNetworks(true); s_scanning = true; }
+    JsonDocument d;
+    d["scanning"] = s_scanning;
+    JsonArray a = d["nets"].to<JsonArray>();
+    for (int i = 0; i < s_nets_n; i++) {
+        JsonObject o = a.add<JsonObject>();
+        o["ssid"] = s_nets[i].ssid; o["rssi"] = s_nets[i].rssi; o["lock"] = s_nets[i].lock;
+    }
     reply(200, d);
 }
 
@@ -221,10 +260,7 @@ static void h_wifi() {
     kom_wifi_save(ssid, pass);
     s_lan_ip[0] = 0;
     s_lan_at = 0;
-    s_sta_since = millis();
-    WiFi.mode(s_ap ? WIFI_AP_STA : WIFI_STA);
-    WiFi.begin(ssid, pass);
-    Serial.printf("[kom] LAN: lacze z \"%s\"\n", ssid);
+    s_join_at = millis() + 2000;
     ok();
 }
 
@@ -252,6 +288,11 @@ static void h_other() {
 
 static void ap_start() {
     if (s_ap) return;
+    if (!s_nets_n) {                                   // pierwsza lista sieci, zanim AP zajmie radio
+        WiFi.mode(WIFI_STA);
+        take_scan(WiFi.scanNetworks(false));
+        Serial.printf("[kom] widze %u sieci WiFi\n", s_nets_n);
+    }
     char id8[9], ssid[32];
     kom_id8(id8);
     snprintf(ssid, sizeof(ssid), "SENSMOS-%s", id8);
@@ -285,6 +326,7 @@ void kom_panel_start() {
     s_web.on("/", HTTP_GET, h_index);
     s_web.on("/api/id", HTTP_GET, h_id);
     s_web.on("/api/pair", HTTP_POST, h_pair);
+    s_web.on("/api/scan", HTTP_GET, h_scan);
     s_web.on("/api/pin", HTTP_POST, h_pin);
     s_web.on("/api/login", HTTP_POST, h_login);
     s_web.on("/api/status", HTTP_GET, h_status);
@@ -318,8 +360,20 @@ void kom_panel_tick() {
     if (!s_started) return;
     if (s_ap) s_dns.processNextRequest();
     s_web.handleClient();
-    if (!g_set.wifi_ssid[0]) return;
+    if (s_scanning) {
+        int n = WiFi.scanComplete();
+        if (n >= 0) { take_scan(n); s_scanning = false; }
+        else if (n == WIFI_SCAN_FAILED) s_scanning = false;
+    }
     uint32_t now = millis();
+    if (s_join_at && (int32_t)(now - s_join_at) >= 0) {
+        s_join_at = 0;
+        s_sta_since = now;
+        WiFi.mode(s_ap ? WIFI_AP_STA : WIFI_STA);
+        WiFi.begin(g_set.wifi_ssid, g_set.wifi_pass);
+        Serial.printf("[kom] LAN: lacze z \"%s\"\n", g_set.wifi_ssid);
+    }
+    if (!g_set.wifi_ssid[0]) return;
     bool up = WiFi.status() == WL_CONNECTED;
     if (up && !s_lan_ip[0]) {
         strlcpy(s_lan_ip, WiFi.localIP().toString().c_str(), sizeof(s_lan_ip));

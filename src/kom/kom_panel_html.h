@@ -24,6 +24,8 @@ button:disabled{opacity:.45}
 .bar{height:8px;background:var(--bd);border-radius:4px;overflow:hidden;margin-top:6px}.bar i{display:block;height:100%;background:var(--acc)}
 .opt{display:flex;gap:12px;align-items:flex-start;padding:12px;border:1px solid var(--bd);border-radius:10px;margin:8px 0}
 .opt input{width:auto;margin-top:4px}.opt b{display:block}.opt small{color:var(--mut)}
+.net{display:flex;justify-content:space-between;align-items:center;width:100%;padding:14px;margin:6px 0;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--fg);font-size:16px;text-align:left}
+.net.on{border-color:var(--acc);outline:2px solid var(--acc)}.net small{color:var(--mut)}
 .tpl{display:flex;gap:8px;align-items:center}.tpl button{width:auto;margin:0;padding:12px 14px}
 #msg{position:fixed;left:16px;right:16px;bottom:78px;padding:12px;border-radius:8px;background:var(--fg);color:var(--bg);display:none}
 nav{position:fixed;left:0;right:0;bottom:0;display:none;background:var(--card);border-top:1px solid var(--bd)}
@@ -31,11 +33,15 @@ nav.on{display:flex}nav a{flex:1;text-align:center;padding:14px 4px;color:var(--
 </style></head><body>
 <header><b>Komunikator Sensmos</b><small id="hd">…</small></header>
 
-<section id="s-wifi1"><div class="card"><h2>Połącz z Twoją siecią WiFi</h2>
-<p class="h">Urządzenie dołączy do domowej sieci. Potem w apce Sensmos: Dodaj urządzenie LoRa → apka znajdzie je w sieci → Sparuj.</p>
-<label>Nazwa sieci (SSID)</label><input id="w1s" maxlength="32" autocapitalize="off">
-<label>Hasło</label><input id="w1p" type="password" maxlength="64">
-<button onclick="wifi1()">Połącz</button><p class="h" id="w1h"></p></div></section>
+<section id="s-wifi1"><div class="card"><h2>Wybierz swoją sieć WiFi</h2>
+<p class="h">Urządzenie dołączy do niej na stałe. Potem w apce Sensmos: Dodaj urządzenie LoRa → Sparuj.</p>
+<div id="nets"></div>
+<button class="sec" onclick="scan(1)">Odśwież listę</button>
+<div id="w1f" style="display:none"><label id="w1l">Hasło</label><input id="w1p" type="password" maxlength="64">
+<input id="w1s" maxlength="32" autocapitalize="off" placeholder="Nazwa sieci (SSID)" style="display:none;margin-top:8px">
+<button onclick="wifi1()">Połącz</button></div>
+<p class="h"><a href="#" onclick="other();return false">Inna sieć (ukryta)</a></p>
+<p class="h" id="w1h"></p></div></section>
 
 <section id="s-pin"><div class="card"><h2>Ustaw PIN panelu</h2>
 <p class="h">PIN chroni ustawienia urządzenia. 4–8 cyfr.</p>
@@ -106,8 +112,12 @@ document.querySelectorAll('nav a').forEach(a=>a.onclick=()=>show(a.dataset.s));
 function visBox(id,cur){$(id).innerHTML=VIS.map((v,i)=>`<label class="opt"><input type="radio" name="${id}" value="${i}" ${cur===i?'checked':''}><span><b>${v[0]}</b><small>${v[1]}</small></span></label>`).join('');
 $(id).onchange=()=>{if($('visok'))$('visok').disabled=false}}
 async function start(){const j=await(await fetch('/api/id')).json();$('hd').textContent='ID '+j.id8+(j.name?' · '+j.name:'');
-if(!j.wifi_set)return show('wifi1');if(!j.pin_set)return show('pin');if(!S)return show('login');await load();ST.vis==255?(visBox('visbox',-1),show('vis')):show('start')}
-async function wifi1(){if(!val('w1s'))return msg(ERR.wifi);await api('wifi',{ssid:val('w1s'),pass:$('w1p').value});$('w1p').value='';$('w1h').textContent='Łączę z siecią… Za chwilę możesz rozłączyć telefon od tego WiFi i dokończyć w apce Sensmos.'}
+if(!j.wifi_set){show('wifi1');return scan(0)}if(!j.pin_set)return show('pin');if(!S)return show('login');await load();ST.vis==255?(visBox('visbox',-1),show('vis')):show('start')}
+const bars=r=>r>-55?'▂▄▆█':r>-67?'▂▄▆':r>-78?'▂▄':'▂';
+async function scan(r){const j=await(await fetch('/api/scan'+(r?'?refresh=1':''))).json();$('nets').innerHTML=j.nets.sort((a,b)=>b.rssi-a.rssi).map((n,i)=>`<button class="net" data-i="${i}"><span>${n.lock?'🔒 ':''}${n.ssid.replace(/</g,'&lt;')}</span><small>${bars(n.rssi)}</small></button>`).join('')||'<p class="h">Szukam sieci…</p>';document.querySelectorAll('.net').forEach(b=>b.onclick=()=>pick(j.nets[+b.dataset.i],b));if(j.scanning||r)setTimeout(()=>scan(0),2500)}
+function pick(n,b){document.querySelectorAll('.net').forEach(x=>x.classList.remove('on'));b.classList.add('on');$('w1s').value=n.ssid;$('w1s').style.display='none';$('w1l').textContent='Hasło do „'+n.ssid+'”';$('w1f').style.display='block';$('w1p').focus()}
+function other(){$('w1s').value='';$('w1s').style.display='block';$('w1l').textContent='Hasło';$('w1f').style.display='block';$('w1s').focus()}
+async function wifi1(){if(!val('w1s'))return msg(ERR.wifi);await api('wifi',{ssid:val('w1s'),pass:$('w1p').value});$('w1p').value='';$('w1f').style.display='none';$('w1h').textContent='Zapisane. Urządzenie łączy się z „'+val('w1s')+'”, a telefon za chwilę sam rozłączy się z SENSMOS — to normalne. Wróć do domowego WiFi i dokończ w apce Sensmos: Dodaj urządzenie LoRa → Sparuj.'}
 async function setPin(){if(val('p1')!=val('p2'))return msg('PIN-y się różnią');const j=await api('pin',{pin:val('p1')});S=j.session;sessionStorage.setItem('ks',S);start()}
 async function login(){const j=await api('login',{pin:val('lp')});S=j.session;sessionStorage.setItem('ks',S);$('lp').value='';start()}
 async function load(){ST=await api('status');$('id8').textContent=ST.id8;$('fp').textContent=ST.fp;

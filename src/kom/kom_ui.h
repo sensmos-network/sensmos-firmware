@@ -16,6 +16,7 @@ struct KomUiState {
 };
 
 void kom_ui_init();
+bool kom_ui_has_oled();                       // Heltec V3 — tak; Wireless Paper (e-papier) — nie
 void kom_ui_next();                           // krótkie naciśnięcie: kolejny ekran
 void kom_ui_draw(const KomUiState& s);
 void kom_ui_msg(const char* l1, const char* l2);

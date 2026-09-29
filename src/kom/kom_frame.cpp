@@ -25,18 +25,18 @@ static size_t seal(uint8_t* o, size_t n, const uint8_t knet[32]) {
 }
 
 size_t kom_build_hello(uint8_t* out, const uint8_t pub[32], const uint8_t id4[4], const uint8_t knet[32],
-                       uint32_t ctr, uint8_t vis, bool withPub, bool pair, const char* name) {
+                       uint32_t ctr, uint8_t vis, bool withPub, const uint8_t* own8, const char* name) {
     static const uint8_t BCAST[4] = { 0xFF, 0xFF, 0xFF, 0xFF };
     size_t n = header(out, KOM_MODE_HELLO, BCAST, id4, ctr);
     size_t nl = name ? strlen(name) : 0;
     if (nl > 16) nl = 16;
     uint8_t hf = vis & 3;
     if (withPub) hf |= 0x04;
-    if (pair)    hf |= 0x08;
+    if (own8)    hf |= 0x08;
     if (nl)      hf |= 0x10;
     out[n++] = hf;
     if (withPub) { memcpy(out + n, pub, 32); n += 32; }
-    if (pair)    { memset(out + n, 0, 8); n += 8; }
+    if (own8)    { memcpy(out + n, own8, 8); n += 8; }
     if (nl)      { out[n++] = (uint8_t)nl; memcpy(out + n, name, nl); n += nl; }
     return seal(out, n, knet);
 }

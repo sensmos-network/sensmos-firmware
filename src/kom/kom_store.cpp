@@ -4,7 +4,6 @@
 #include "kom_id.h"
 #include <Arduino.h>
 #include <Preferences.h>
-#include <esp_random.h>
 
 KomSettings g_set;
 static const char* NS = "sensmos_kom";
@@ -21,15 +20,6 @@ void kom_store_load() {
     Preferences p;
     p.begin(NS, false);
     memset(&g_set, 0, sizeof(g_set));
-    // getString zwraca długość RAZEM z zerem — sprawdzamy sam tekst, inaczej hasło losowałoby się
-    // przy każdym starcie.
-    p.getString("appw", g_set.ap_pass, sizeof(g_set.ap_pass));
-    if (strlen(g_set.ap_pass) != 8) {
-        static const char A[] = "abcdefghjkmnpqrstuvwxyz23456789";   // bez 0/o/1/l/i — do przepisania z OLED
-        for (int i = 0; i < 8; i++) g_set.ap_pass[i] = A[esp_random() % (sizeof(A) - 1)];
-        g_set.ap_pass[8] = 0;
-        p.putString("appw", g_set.ap_pass);
-    }
     g_set.pin_set  = p.isKey("pinh");
     g_set.vis      = p.getUChar("vis", KOM_VIS_UNSET);
     p.getString("name", g_set.name, sizeof(g_set.name));

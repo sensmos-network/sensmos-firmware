@@ -68,6 +68,15 @@ bool kom_knet(const uint8_t priv[32], const uint8_t pub[32], const uint8_t bePub
     return r == 0;
 }
 
+void kom_own_tag(const uint8_t knet[32], const uint8_t owner[20], uint8_t out[8]) {
+    static const char L[] = "sensmos-ldev-own-v1";
+    uint8_t buf[sizeof(L) - 1 + 20], mac[32];
+    memcpy(buf, L, sizeof(L) - 1);
+    memcpy(buf + sizeof(L) - 1, owner, 20);
+    kom_hmac(knet, 32, buf, sizeof(buf), mac);
+    memcpy(out, mac, 8);
+}
+
 bool kom_hex(const char* hex, uint8_t* out, size_t n) {
     if (strlen(hex) != n * 2) return false;
     for (size_t i = 0; i < n; i++) {

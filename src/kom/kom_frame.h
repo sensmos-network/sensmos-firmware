@@ -10,11 +10,11 @@
 #define KOM_MODE_HELLO  2
 #define KOM_MODE_ACK    3
 
-// HELLO: vis 0 ukryty / 1 w pobliżu / 2 mapa; withPub = klucz publiczny w treści; pair = prośba
-// o parowanie z portfelem (pole OWN); name ≤16 B UTF-8 albo nullptr.
+// HELLO: vis 0 ukryty / 1 w pobliżu / 2 mapa; withPub = klucz publiczny w treści; own8 = znacznik
+// portfela do potwierdzenia parowania (pole OWN) albo nullptr; name ≤16 B UTF-8 albo nullptr.
 // Klucze z argumentów (a nie z g_kom) — ta sama funkcja liczy self-test na wektorach.
 size_t kom_build_hello(uint8_t* out, const uint8_t pub[32], const uint8_t id4[4], const uint8_t knet[32],
-                       uint32_t ctr, uint8_t vis, bool withPub, bool pair, const char* name);
+                       uint32_t ctr, uint8_t vis, bool withPub, const uint8_t* own8, const char* name);
 
 // Wiadomość do własnego konta (tryb 0, dst4 = src4): szyfr kluczem z K_net — serwer ją czyta
 // i przekazuje właścicielowi do HA i apki. Tekst UTF-8 bez znaków sterujących, 1–100 B.

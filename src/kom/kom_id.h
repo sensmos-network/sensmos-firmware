@@ -23,3 +23,5 @@ uint32_t kom_ctr_next();
 void kom_id8(char out[9]);
 void kom_fingerprint(char out[20]);   // "ab12 cd34 ef56 7890"
 bool kom_hex(const char* hex, uint8_t* out, size_t n);
+// OWN w HELLO: HMAC(K_net, "sensmos-ldev-own-v1" ‖ adres portfela 20 B)[0:8]
+void kom_own_tag(const uint8_t knet[32], const uint8_t owner[20], uint8_t out[8]);

@@ -10,7 +10,7 @@
 #define SENSMOS_KOM 0
 #endif
 
-#define KOM_FW_VERSION      "0.3-kom"
+#define KOM_FW_VERSION      "0.4-kom"
 
 // Klucz publiczny serwera (GET https://api.sensmos.com/v1/ldev/key). Stały: jego zmiana
 // unieważnia podpis sieciowy wszystkich urządzeń.
@@ -40,13 +40,16 @@
 #define KOM_HELLO_FULL_MS   86400000UL
 #define KOM_RETRY_MS        60000UL     // brak budżetu pasma → spróbuj za minutę
 
-// ── Heltec WiFi LoRa 32 V3 ────────────────────────────────────
+// Hasło AP przy pierwszym uruchomieniu — stałe, żeby nie trzeba go było odczytywać z ekranu.
+#define KOM_AP_PASS         "12345678"
+
+// ── Heltec WiFi LoRa 32 V3 / Wireless Paper (ta sama tabela radia, inny ekran i dioda) ──
 #define KOM_PIN_BUTTON      0           // PRG
-#define KOM_PIN_LED         35
+#define KOM_PIN_LED_V3      35
+#define KOM_PIN_LED_PAPER   18
 #define KOM_PIN_VEXT        36          // LOW = zasilanie OLED włączone
 #define KOM_OLED_SDA        17
 #define KOM_OLED_SCL        18
 #define KOM_OLED_RST        21
 #define KOM_BTN_LONG_MS     3000UL
 #define KOM_BTN_DOUBLE_MS   400UL
-#define KOM_BTN_PAIR_MS     5000UL

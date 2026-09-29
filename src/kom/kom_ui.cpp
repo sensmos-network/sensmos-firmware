@@ -8,18 +8,29 @@
 static U8G2_SSD1306_128X64_NONAME_F_HW_I2C s_oled(U8G2_R0, KOM_OLED_RST, KOM_OLED_SCL, KOM_OLED_SDA);
 static uint8_t s_screen = 0;
 static const uint8_t SCREENS = 2;
+static bool s_oled_ok = false;
 
+// OLED V3 wisi na I2C 17/18 za Vext. Na Wireless Paper pod 18 jest dioda, a ekran to e-papier na
+// SPI — bez odpowiedzi pod 0x3C nie ruszamy U8g2 (inaczej migałaby dioda).
 void kom_ui_init() {
     pinMode(KOM_PIN_VEXT, OUTPUT);
     digitalWrite(KOM_PIN_VEXT, LOW);
     delay(50);
+    Wire.begin(KOM_OLED_SDA, KOM_OLED_SCL);
+    Wire.beginTransmission(0x3C);
+    s_oled_ok = Wire.endTransmission() == 0;
+    Wire.end();
+    if (!s_oled_ok) return;
     s_oled.begin();
     s_oled.setFont(u8g2_font_6x12_tr);
 }
 
+bool kom_ui_has_oled() { return s_oled_ok; }
+
 void kom_ui_next() { s_screen = (s_screen + 1) % SCREENS; }
 
 void kom_ui_msg(const char* l1, const char* l2) {
+    if (!s_oled_ok) return;
     s_oled.clearBuffer();
     s_oled.drawStr(0, 12, "SENSMOS KOM " KOM_FW_VERSION);
     if (l1) s_oled.drawStr(0, 34, l1);
@@ -28,6 +39,7 @@ void kom_ui_msg(const char* l1, const char* l2) {
 }
 
 void kom_ui_draw(const KomUiState& s) {
+    if (!s_oled_ok) return;
     char l[32];
     s_oled.clearBuffer();
     if (s_screen == 0) {
@@ -55,6 +67,7 @@ void kom_ui_draw(const KomUiState& s) {
 }
 
 void kom_ui_panel(const char* ssid, const char* pass, const char* lan_ip) {
+    if (!s_oled_ok) return;
     char l[32];
     s_oled.clearBuffer();
     s_oled.drawStr(0, 10, "PANEL WiFi");

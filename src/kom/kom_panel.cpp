@@ -15,21 +15,27 @@
 #include <ArduinoJson.h>
 #include <esp_random.h>
 
-static WebServer* s_web = nullptr;
+// Sieć komunikatora:
+// - pierwsze uruchomienie (brak WiFi w ustawieniach): AP SENSMOS-<id8>, hasło KOM_AP_PASS, strona
+//   z jednym formularzem — Twoje WiFi;
+// - potem LAN na stałe: panel pod http://<IP> i kom-<id8>.local, apka Sensmos znajduje urządzenie
+//   w sieci i paruje je z portfelem;
+// - AP wraca sam, gdy LAN nie wstanie w 45 s, albo po przytrzymaniu PRG 3 s; gaśnie minutę po
+//   połączeniu z LAN.
+static WebServer  s_web(80);
 static DNSServer  s_dns;
-static bool       s_on = false, s_mdns = false;
-static uint32_t   s_last = 0;
+static bool       s_started = false, s_ap = false, s_mdns = false;
+static uint32_t   s_sta_since = 0, s_lan_at = 0, s_ap_keep = 0;
 static char       s_session[33] = "";
 static char       s_lan_ip[16] = "";
 static uint8_t    s_fails = 0;
 static uint32_t   s_locked_until = 0;
-static bool       s_stop_after = false;
 
-static const uint32_t IDLE_MS = 5UL * 60 * 1000;
+static const uint32_t LAN_WAIT_MS = 45000, AP_AFTER_LAN_MS = 60000;
 static const IPAddress AP_IP(192, 168, 4, 1);
 
 const char* kom_panel_lan_ip() { return s_lan_ip; }
-bool kom_panel_on() { return s_on; }
+bool kom_panel_on() { return s_ap; }
 
 static void new_session() {
     uint8_t r[16];
@@ -40,20 +46,20 @@ static void new_session() {
 static void reply(int code, JsonDocument& d) {
     String out;
     serializeJson(d, out);
-    s_web->sendHeader("Cache-Control", "no-store");
-    s_web->send(code, "application/json", out);
+    s_web.sendHeader("Cache-Control", "no-store");
+    s_web.sendHeader("Access-Control-Allow-Origin", "*");
+    s_web.send(code, "application/json", out);
 }
 static void err(int code, const char* e) { JsonDocument d; d["err"] = e; reply(code, d); }
 static void ok() { JsonDocument d; d["ok"] = true; reply(200, d); }
 
 static bool body(JsonDocument& d) {
-    if (deserializeJson(d, s_web->arg("plain")) != DeserializationError::Ok) { err(400, "json"); return false; }
+    if (deserializeJson(d, s_web.arg("plain")) != DeserializationError::Ok) { err(400, "json"); return false; }
     return true;
 }
 
 static bool authed() {
-    s_last = millis();
-    if (s_session[0] && s_web->header("X-Kom-Session") == s_session) return true;
+    if (s_session[0] && s_web.header("X-Kom-Session") == s_session) return true;
     err(401, "session");
     return false;
 }
@@ -73,21 +79,32 @@ static bool name_valid(const char* s) {
     return true;
 }
 
-static void log_req() {
-    Serial.printf("[kom] http %s %s (host %s)\n", s_web->method() == HTTP_GET ? "GET" : "POST",
-                  s_web->uri().c_str(), s_web->hostHeader().c_str());
-}
+static void h_index() { s_web.send_P(200, "text/html; charset=utf-8", KOM_PANEL_HTML); }
 
-static void h_index() { log_req(); s_last = millis(); s_web->send_P(200, "text/html; charset=utf-8", KOM_PANEL_HTML); }
-
+// Publiczne: apka rozpoznaje po nim komunikator w sieci („kom”: 1).
 static void h_id() {
-    s_last = millis();
     char id8[9], fp[20];
     kom_id8(id8); kom_fingerprint(fp);
     JsonDocument d;
-    d["id8"] = id8; d["fp"] = fp; d["fw"] = KOM_FW_VERSION; d["name"] = g_set.name;
+    d["kom"] = 1; d["id8"] = id8; d["fp"] = fp; d["fw"] = KOM_FW_VERSION; d["name"] = g_set.name;
     d["pin_set"] = g_set.pin_set; d["vis"] = g_set.vis;
+    d["wifi_set"] = g_set.wifi_ssid[0] != 0; d["lan_ip"] = s_lan_ip;
     reply(200, d);
+}
+
+// Parowanie z portfelem: apka (ta sama sieć) podaje adres, urządzenie potwierdza go radiem
+// ramką podpisaną swoim kluczem. Wcześniej apka zgłasza parowanie na serwerze podpisem portfela.
+static void h_pair() {
+    JsonDocument d;
+    if (!body(d)) return;
+    uint8_t owner[20];
+    const char* o = d["owner"] | "";
+    if (strlen(o) != 42 || o[0] != '0' || (o[1] != 'x' && o[1] != 'X') || !kom_hex(o + 2, owner, 20)) return err(400, "owner");
+    kom_pair_owner(owner);
+    char id8[9];
+    kom_id8(id8);
+    JsonDocument r; r["ok"] = true; r["id8"] = id8;
+    reply(200, r);
 }
 
 static void h_pin() {
@@ -106,7 +123,6 @@ static void h_pin() {
 }
 
 static void h_login() {
-    s_last = millis();
     if ((int32_t)(millis() - s_locked_until) < 0) {
         JsonDocument r; r["err"] = "locked"; r["wait"] = (s_locked_until - millis()) / 1000 + 1;
         return reply(429, r);
@@ -139,8 +155,7 @@ static void h_status() {
     JsonArray t = d["tpl"].to<JsonArray>();
     for (int i = 0; i < g_set.tpl_n; i++) t.add(g_set.tpl[i]);
     JsonObject w = d["wifi"].to<JsonObject>();
-    char ssid[40]; snprintf(ssid, sizeof(ssid), "SENSMOS-%s", id8);
-    w["ap"] = ssid; w["ssid"] = g_set.wifi_ssid; w["lan_ip"] = s_lan_ip;
+    w["ssid"] = g_set.wifi_ssid; w["lan_ip"] = s_lan_ip;
     char host[24]; snprintf(host, sizeof(host), "kom-%s.local", id8);
     w["host"] = host;
     reply(200, d);
@@ -167,7 +182,6 @@ static void h_name() {
     kom_request_hello();
     ok();
 }
-
 
 static void h_templates() {
     if (!authed()) return;
@@ -196,21 +210,23 @@ static void h_send() {
 
 static void h_hello() { if (!authed()) return; kom_request_hello(); ok(); }
 
+// Pierwsze uruchomienie (brak WiFi): bez PIN-u — chroni hasło AP. Zmiana później: z sesją.
 static void h_wifi() {
-    if (!authed()) return;
+    if (g_set.wifi_ssid[0] && !authed()) return;
     JsonDocument d;
     if (!body(d)) return;
     const char* ssid = d["ssid"] | "";
     const char* pass = d["pass"] | "";
-    if (strlen(ssid) > 32 || strlen(pass) > 64 || (pass[0] && strlen(pass) < 8)) return err(400, "wifi");
+    if (!ssid[0] || strlen(ssid) > 32 || strlen(pass) > 64 || (pass[0] && strlen(pass) < 8)) return err(400, "wifi");
     kom_wifi_save(ssid, pass);
     s_lan_ip[0] = 0;
-    if (ssid[0]) { WiFi.mode(WIFI_AP_STA); WiFi.begin(ssid, pass); }
-    else { WiFi.disconnect(false); WiFi.mode(WIFI_AP); }
+    s_lan_at = 0;
+    s_sta_since = millis();
+    WiFi.mode(s_ap ? WIFI_AP_STA : WIFI_STA);
+    WiFi.begin(ssid, pass);
+    Serial.printf("[kom] LAN: lacze z \"%s\"\n", ssid);
     ok();
 }
-
-static void h_off() { if (!authed()) return; ok(); s_stop_after = true; }
 
 static void h_reset() {
     if (!authed()) return;
@@ -222,104 +238,105 @@ static void h_reset() {
     kom_factory_reset();
 }
 
-// Portal przechwytujący: telefon sprawdza internet pod znanymi adresami — każde obce żądanie
-// w sieci panelu odsyłamy na stronę główną, więc system sam proponuje „Zaloguj się do sieci”.
+// Portal przechwytujący (tylko przy AP): telefon sprawdza internet pod znanymi adresami — każde
+// obce żądanie odsyłamy na stronę główną, więc system sam proponuje „Zaloguj się do sieci”.
 static void h_other() {
-    log_req();
-    String host = s_web->hostHeader();
-    if (host != AP_IP.toString() && (!s_lan_ip[0] || host != s_lan_ip) && !host.endsWith(".local")) {
-        s_web->sendHeader("Location", "http://192.168.4.1/", true);
-        s_web->send(302, "text/plain", "");
+    String host = s_web.hostHeader();
+    if (s_ap && host != AP_IP.toString() && (!s_lan_ip[0] || host != s_lan_ip) && !host.endsWith(".local")) {
+        s_web.sendHeader("Location", "http://192.168.4.1/", true);
+        s_web.send(302, "text/plain", "");
         return;
     }
-    s_web->send(404, "text/plain", "404");
+    s_web.send(404, "text/plain", "404");
 }
 
-void kom_panel_start() {
-    if (s_on) return;
+static void ap_start() {
+    if (s_ap) return;
     char id8[9], ssid[32];
     kom_id8(id8);
     snprintf(ssid, sizeof(ssid), "SENSMOS-%s", id8);
-    WiFi.persistent(false);
     WiFi.mode(g_set.wifi_ssid[0] ? WIFI_AP_STA : WIFI_AP);
     WiFi.softAPConfig(AP_IP, AP_IP, IPAddress(255, 255, 255, 0));
-    bool ap = WiFi.softAP(ssid, g_set.ap_pass);
+    bool okap = WiFi.softAP(ssid, KOM_AP_PASS);
     // ESP32-S3 z małą anteną (Heltec) przy pełnej mocy potrafi „gubić” AP — telefon go nie widzi.
     WiFi.setTxPower(WIFI_POWER_8_5dBm);
-    Serial.printf("[kom] AP %s, kanal %d, IP %s\n", ap ? "OK" : "BLAD", WiFi.channel(), WiFi.softAPIP().toString().c_str());
-    if (g_set.wifi_ssid[0]) WiFi.begin(g_set.wifi_ssid, g_set.wifi_pass);
     s_dns.setErrorReplyCode(DNSReplyCode::NoError);
     s_dns.start(53, "*", AP_IP);
-
-    s_web = new WebServer(80);
-    static const char* HDR[] = { "X-Kom-Session" };
-    s_web->collectHeaders(HDR, 1);
-    s_web->on("/", HTTP_GET, h_index);
-    s_web->on("/api/id", HTTP_GET, h_id);
-    s_web->on("/api/pin", HTTP_POST, h_pin);
-    s_web->on("/api/login", HTTP_POST, h_login);
-    s_web->on("/api/status", HTTP_GET, h_status);
-    s_web->on("/api/vis", HTTP_POST, h_vis);
-    s_web->on("/api/name", HTTP_POST, h_name);
-    s_web->on("/api/templates", HTTP_POST, h_templates);
-    s_web->on("/api/send", HTTP_POST, h_send);
-    s_web->on("/api/hello", HTTP_POST, h_hello);
-    s_web->on("/api/wifi", HTTP_POST, h_wifi);
-    s_web->on("/api/panel_off", HTTP_POST, h_off);
-    s_web->on("/api/reset", HTTP_POST, h_reset);
-    s_web->onNotFound(h_other);
-    s_web->begin();
-    static bool ev = false;
-    if (!ev) {
-        ev = true;
-        WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t) { Serial.println("[kom] panel: telefon polaczony z AP"); },
-                     ARDUINO_EVENT_WIFI_AP_STACONNECTED);
-        WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t i) {
-            Serial.printf("[kom] panel: telefon dostal IP " IPSTR "\n", IP2STR(&i.wifi_ap_staipassigned.ip));
-        }, ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED);
-    }
-    s_on = true; s_last = millis(); s_session[0] = 0; s_lan_ip[0] = 0; s_mdns = false; s_stop_after = false;
-    Serial.printf("[kom] panel WiFi %s haslo %s%s\n", ssid, g_set.ap_pass, g_set.wifi_ssid[0] ? ", LAN wlaczony" : "");
+    s_ap = true;
+    Serial.printf("[kom] AP %s %s (haslo %s)\n", ssid, okap ? "OK" : "BLAD", KOM_AP_PASS);
 }
 
-void kom_panel_stop() {
-    if (!s_on) return;
-    s_web->stop();
-    delete s_web; s_web = nullptr;
+static void ap_stop() {
+    if (!s_ap) return;
     s_dns.stop();
-    if (s_mdns) { MDNS.end(); s_mdns = false; }
     WiFi.softAPdisconnect(true);
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
-    s_on = false; s_session[0] = 0; s_lan_ip[0] = 0;
-    Serial.println("[kom] panel wylaczony");
+    WiFi.mode(g_set.wifi_ssid[0] ? WIFI_STA : WIFI_OFF);
+    s_ap = false;
+    Serial.println("[kom] AP wylaczony");
 }
+
+void kom_panel_start() {
+    if (s_started) return;
+    s_started = true;
+    WiFi.persistent(false);
+    WiFi.setHostname("sensmos-kom");
+    static const char* HDR[] = { "X-Kom-Session" };
+    s_web.collectHeaders(HDR, 1);
+    s_web.on("/", HTTP_GET, h_index);
+    s_web.on("/api/id", HTTP_GET, h_id);
+    s_web.on("/api/pair", HTTP_POST, h_pair);
+    s_web.on("/api/pin", HTTP_POST, h_pin);
+    s_web.on("/api/login", HTTP_POST, h_login);
+    s_web.on("/api/status", HTTP_GET, h_status);
+    s_web.on("/api/vis", HTTP_POST, h_vis);
+    s_web.on("/api/name", HTTP_POST, h_name);
+    s_web.on("/api/templates", HTTP_POST, h_templates);
+    s_web.on("/api/send", HTTP_POST, h_send);
+    s_web.on("/api/hello", HTTP_POST, h_hello);
+    s_web.on("/api/wifi", HTTP_POST, h_wifi);
+    s_web.on("/api/reset", HTTP_POST, h_reset);
+    s_web.onNotFound(h_other);
+    if (g_set.wifi_ssid[0]) {
+        WiFi.mode(WIFI_STA);
+        WiFi.begin(g_set.wifi_ssid, g_set.wifi_pass);
+        s_sta_since = millis();
+        Serial.printf("[kom] LAN: lacze z \"%s\"\n", g_set.wifi_ssid);
+    } else {
+        ap_start();
+    }
+    s_web.begin();
+}
+
+void kom_panel_ap(bool on) {
+    if (on) { ap_start(); s_ap_keep = millis() + 600000; }
+    else ap_stop();
+}
+
+void kom_panel_stop() { ap_stop(); }
 
 void kom_panel_tick() {
-    if (!s_on) return;
-    s_dns.processNextRequest();
-    s_web->handleClient();
-    if (g_set.wifi_ssid[0]) {
-        bool up = WiFi.status() == WL_CONNECTED;
-        if (up && !s_lan_ip[0]) {
-            strlcpy(s_lan_ip, WiFi.localIP().toString().c_str(), sizeof(s_lan_ip));
-            char id8[9], host[20];
-            kom_id8(id8);
-            snprintf(host, sizeof(host), "kom-%s", id8);
-            if (!s_mdns && MDNS.begin(host)) { MDNS.addService("http", "tcp", 80); s_mdns = true; }
-            Serial.printf("[kom] LAN %s (%s.local)\n", s_lan_ip, host);
-        } else if (!up && s_lan_ip[0]) {
-            s_lan_ip[0] = 0;
-        }
+    if (!s_started) return;
+    if (s_ap) s_dns.processNextRequest();
+    s_web.handleClient();
+    if (!g_set.wifi_ssid[0]) return;
+    uint32_t now = millis();
+    bool up = WiFi.status() == WL_CONNECTED;
+    if (up && !s_lan_ip[0]) {
+        strlcpy(s_lan_ip, WiFi.localIP().toString().c_str(), sizeof(s_lan_ip));
+        s_lan_at = now;
+        char id8[9], host[20];
+        kom_id8(id8);
+        snprintf(host, sizeof(host), "kom-%s", id8);
+        if (!s_mdns && MDNS.begin(host)) { MDNS.addService("http", "tcp", 80); s_mdns = true; }
+        Serial.printf("[kom] LAN %s (%s.local)\n", s_lan_ip, host);
+    } else if (!up && s_lan_ip[0]) {
+        s_lan_ip[0] = 0;
+        s_sta_since = now;
+        Serial.println("[kom] LAN rozlaczony");
     }
-    // Bez PIN-u panel nie gaśnie — to jedyna droga do pierwszej konfiguracji.
-    static uint32_t s_diag = 0;
-    if (millis() - s_diag > 30000) {
-        s_diag = millis();
-        Serial.printf("[kom] panel: AP %s, klientow %d, PIN %s\n", WiFi.getMode() & WIFI_AP ? "wl." : "WYL.",
-                      WiFi.softAPgetStationNum(), g_set.pin_set ? "ustawiony" : "brak");
-    }
-    if (s_stop_after || (g_set.pin_set && millis() - s_last > IDLE_MS)) kom_panel_stop();
+    if (!up && !s_ap && now - s_sta_since > LAN_WAIT_MS) ap_start();              // LAN nie wstał — AP na ratunek
+    if (up && s_ap && s_lan_at && now - s_lan_at > AP_AFTER_LAN_MS && (int32_t)(now - s_ap_keep) > 0)
+        ap_stop();                                                               // LAN działa — AP zbędny
 }
 
 #endif

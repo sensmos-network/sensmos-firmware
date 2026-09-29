@@ -31,6 +31,12 @@ nav.on{display:flex}nav a{flex:1;text-align:center;padding:14px 4px;color:var(--
 </style></head><body>
 <header><b>Komunikator Sensmos</b><small id="hd">…</small></header>
 
+<section id="s-wifi1"><div class="card"><h2>Połącz z Twoją siecią WiFi</h2>
+<p class="h">Urządzenie dołączy do domowej sieci. Potem w apce Sensmos: Dodaj urządzenie LoRa → apka znajdzie je w sieci → Sparuj.</p>
+<label>Nazwa sieci (SSID)</label><input id="w1s" maxlength="32" autocapitalize="off">
+<label>Hasło</label><input id="w1p" type="password" maxlength="64">
+<button onclick="wifi1()">Połącz</button><p class="h" id="w1h"></p></div></section>
+
 <section id="s-pin"><div class="card"><h2>Ustaw PIN panelu</h2>
 <p class="h">PIN chroni ustawienia urządzenia. 4–8 cyfr.</p>
 <label>PIN</label><input id="p1" type="password" inputmode="numeric" maxlength="8">
@@ -100,7 +106,8 @@ document.querySelectorAll('nav a').forEach(a=>a.onclick=()=>show(a.dataset.s));
 function visBox(id,cur){$(id).innerHTML=VIS.map((v,i)=>`<label class="opt"><input type="radio" name="${id}" value="${i}" ${cur===i?'checked':''}><span><b>${v[0]}</b><small>${v[1]}</small></span></label>`).join('');
 $(id).onchange=()=>{if($('visok'))$('visok').disabled=false}}
 async function start(){const j=await(await fetch('/api/id')).json();$('hd').textContent='ID '+j.id8+(j.name?' · '+j.name:'');
-if(!j.pin_set)return show('pin');if(!S)return show('login');await load();ST.vis==255?(visBox('visbox',-1),show('vis')):show('start')}
+if(!j.wifi_set)return show('wifi1');if(!j.pin_set)return show('pin');if(!S)return show('login');await load();ST.vis==255?(visBox('visbox',-1),show('vis')):show('start')}
+async function wifi1(){if(!val('w1s'))return msg(ERR.wifi);await api('wifi',{ssid:val('w1s'),pass:$('w1p').value});$('w1p').value='';$('w1h').textContent='Łączę z siecią… Za chwilę możesz rozłączyć telefon od tego WiFi i dokończyć w apce Sensmos.'}
 async function setPin(){if(val('p1')!=val('p2'))return msg('PIN-y się różnią');const j=await api('pin',{pin:val('p1')});S=j.session;sessionStorage.setItem('ks',S);start()}
 async function login(){const j=await api('login',{pin:val('lp')});S=j.session;sessionStorage.setItem('ks',S);$('lp').value='';start()}
 async function load(){ST=await api('status');$('id8').textContent=ST.id8;$('fp').textContent=ST.fp;

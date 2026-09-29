@@ -23,6 +23,7 @@ static uint8_t  s_boot_i = 0;
 static uint32_t s_next_short = 0, s_next_full = 0, s_retry_at = 0;
 static uint32_t s_msg_until = 0, s_draw_at = 0;
 static bool     s_force_hello = false;
+static uint8_t  s_led = KOM_PIN_LED_V3;
 
 static bool due(uint32_t now, uint32_t t) { return (int32_t)(now - t) >= 0; }
 
@@ -33,9 +34,12 @@ static bool selftest() {
     if (!kom_x25519(KOMT_DEV_PRIV, nullptr, pub) || memcmp(pub, KOMT_DEV_PUB, 32)) return false;
     if (!kom_knet(KOMT_DEV_PRIV, pub, KOMT_BE_PUB, knet) || memcmp(knet, KOMT_K_NET, 32)) return false;
     kom_sha256(pub, 32, h);
-    size_t n = kom_build_hello(f, pub, h, knet, 1, 1, false, false, nullptr);
+    size_t n = kom_build_hello(f, pub, h, knet, 1, 1, false, nullptr, nullptr);
     if (n != sizeof(KOMT_HELLO_SHORT) || memcmp(f, KOMT_HELLO_SHORT, n)) return false;
-    n = kom_build_hello(f, pub, h, knet, 7, 0, true, true, nullptr);
+    uint8_t owner[20], own[8];
+    memset(owner, 0x11, 20);
+    kom_own_tag(knet, owner, own);
+    n = kom_build_hello(f, pub, h, knet, 7, 0, true, own, nullptr);
     if (n != sizeof(KOMT_HELLO_PAIR) || memcmp(f, KOMT_HELLO_PAIR, n)) return false;
     n = kom_build_acct(f, h, knet, 6, "kod:ALARM", false, KOMT_NONCE);
     return n == sizeof(KOMT_ACCT) && !memcmp(f, KOMT_ACCT, n);
@@ -48,9 +52,9 @@ KomStats kom_stats() {
 void kom_request_hello() { s_force_hello = true; s_retry_at = millis(); }
 
 static int32_t send_up(const uint8_t* f, size_t n) {
-    digitalWrite(KOM_PIN_LED, HIGH);
+    digitalWrite(s_led, HIGH);
     int32_t r = kom_radio_send_up(f, n);
-    digitalWrite(KOM_PIN_LED, LOW);
+    digitalWrite(s_led, LOW);
     return r;
 }
 
@@ -64,17 +68,33 @@ int32_t kom_send_msg(const char* text) {
     return r;
 }
 
-// Pełne HELLO z polem OWN: serwer przypina urządzenie do portfela, który w ciągu 3 min zgłosił
-// parowanie w apce. Mignięcie diodą potwierdza nadanie (Wireless Paper nie ma jeszcze ekranu).
-int32_t kom_pair() {
-    if (!s_selftest || !kom_radio_ok()) return -2;
-    uint8_t f[KOM_FRAME_MAX];
+// Parowanie: apka podała adres portfela przez WiFi. Pełne HELLO z OWN = znacznik tego portfela;
+// serwer paruje, gdy ten sam portfel zgłosił parowanie podpisem. Trzy nadania (0, +20 s, +60 s)
+// na wypadek zgubionej ramki.
+static uint8_t  s_pair_owner[20];
+static uint8_t  s_pair_left = 0;
+static uint32_t s_pair_next = 0;
+static const uint32_t PAIR_GAP_MS[] = { 0, 20000, 40000 };
+
+void kom_pair_owner(const uint8_t owner[20]) {
+    memcpy(s_pair_owner, owner, 20);
+    s_pair_left = 3;
+    s_pair_next = millis();
+    Serial.println("[kom] parowanie: adres portfela z sieci, potwierdzam radiem");
+}
+
+static void pair_tick(uint32_t now) {
+    if (!s_pair_left || !s_selftest || !kom_radio_ok() || !due(now, s_pair_next)) return;
+    uint8_t f[KOM_FRAME_MAX], own[8];
+    kom_own_tag(g_kom.knet, s_pair_owner, own);
     uint32_t ctr = kom_ctr_next();
     uint8_t vis = g_set.vis == KOM_VIS_UNSET ? 0 : g_set.vis;
-    size_t n = kom_build_hello(f, g_kom.pub, g_kom.id4, g_kom.knet, ctr, vis, true, true, g_set.name[0] ? g_set.name : nullptr);
+    size_t n = kom_build_hello(f, g_kom.pub, g_kom.id4, g_kom.knet, ctr, vis, true, own, g_set.name[0] ? g_set.name : nullptr);
     int32_t r = send_up(f, n);
     Serial.printf("[kom] parowanie: HELLO z OWN ctr %lu: %ld\n", (unsigned long)ctr, (long)r);
-    return r;
+    if (r == -1) { s_pair_next = now + KOM_RETRY_MS; return; }
+    s_pair_left--;
+    if (s_pair_left) s_pair_next = now + PAIR_GAP_MS[3 - s_pair_left];
 }
 
 // Widoczność i nazwa z ustawień; do pierwszego wyboru w panelu urządzenie jest ukryte (vis 0).
@@ -83,7 +103,7 @@ static int32_t send_hello(bool full) {
     uint32_t ctr = kom_ctr_next();
     uint8_t vis = g_set.vis == KOM_VIS_UNSET ? 0 : g_set.vis;
     const char* name = full && g_set.name[0] ? g_set.name : nullptr;
-    size_t n = kom_build_hello(f, g_kom.pub, g_kom.id4, g_kom.knet, ctr, vis, full, false, name);
+    size_t n = kom_build_hello(f, g_kom.pub, g_kom.id4, g_kom.knet, ctr, vis, full, nullptr, name);
     int32_t r = send_up(f, n);
     if (r >= 0) {
         s_hello_n++; s_hello_at = millis(); s_hello_any = true;
@@ -133,31 +153,24 @@ static void send_template(uint32_t now) {
 }
 
 static void blink(int n) {
-    for (int i = 0; i < n; i++) { digitalWrite(KOM_PIN_LED, HIGH); delay(120); digitalWrite(KOM_PIN_LED, LOW); delay(120); }
+    for (int i = 0; i < n; i++) { digitalWrite(s_led, HIGH); delay(120); digitalWrite(s_led, LOW); delay(120); }
 }
 
-// PRG: krótko = kolejny ekran, dwa razy = pierwszy szablon do konta, 3–5 s = panel WiFi wł./wył.,
-// ≥5 s = parowanie z portfelem. Dioda mignie raz przy 3 s i dwa razy przy 5 s.
-static bool s_down = false, s_single = false;
-static uint8_t s_stage = 0;
+// PRG: krótko = kolejny ekran, dwa razy = pierwszy szablon do konta, 3 s = AP WiFi wł./wył.
+// (ratunek, gdy LAN nie działa). Dioda mignie przy 3 s.
+static bool s_down = false, s_single = false, s_long = false;
 static uint32_t s_down_at = 0, s_up_at = 0;
 static void button_tick(uint32_t now) {
     bool down = digitalRead(KOM_PIN_BUTTON) == LOW;
-    if (down && !s_down) { s_down = true; s_stage = 0; s_down_at = now; }
-    else if (down) {
-        uint32_t held = now - s_down_at;
-        if (held >= KOM_BTN_PAIR_MS && s_stage < 2) { s_stage = 2; blink(2); }
-        else if (held >= KOM_BTN_LONG_MS && s_stage < 1) { s_stage = 1; blink(1); }
-    } else if (s_down) {
+    if (down && !s_down) { s_down = true; s_long = false; s_down_at = now; }
+    else if (down && !s_long && now - s_down_at >= KOM_BTN_LONG_MS) { s_long = true; blink(1); }
+    else if (!down && s_down) {
         s_down = false;
-        if (s_stage == 2) {
+        if (s_long) {
             s_single = false;
-            int32_t r = kom_pair();
-            flash_msg(now, r >= 0 ? "Parowanie wyslane" : "Blad parowania", nullptr);
-        } else if (s_stage == 1) {
-            s_single = false;
-            if (kom_panel_on()) { kom_panel_stop(); flash_msg(now, "Panel wylaczony", nullptr); }
-            else kom_panel_start();
+            bool on = !kom_panel_on();
+            kom_panel_ap(on);
+            flash_msg(now, on ? "AP wlaczone" : "AP wylaczone", nullptr);
         } else if (now - s_down_at > 30) {
             if (s_single && now - s_up_at <= KOM_BTN_DOUBLE_MS) { s_single = false; send_template(now); }
             else { s_single = true; s_up_at = now; }
@@ -169,7 +182,7 @@ static void button_tick(uint32_t now) {
     }
 }
 
-// Komendy po USB (115200): status | msg <tekst> | pair | hello | panel — test bez telefonu.
+// Komendy po USB (115200): status | msg <tekst> | pair 0x<portfel> | hello | panel — test bez telefonu.
 static void serial_tick() {
     static char line[140];
     static size_t n = 0;
@@ -185,14 +198,15 @@ static void serial_tick() {
             for (int i = 0; i < g_set.tpl_n; i++) Serial.printf("[kom] szablon %d: %s\n", i + 1, g_set.tpl[i]);
         } else if (!strncmp(line, "msg ", 4)) {
             kom_send_msg(line + 4);
-        } else if (!strcmp(line, "pair")) {
-            kom_pair();
+        } else if (!strncmp(line, "pair 0x", 7) && strlen(line) == 47) {
+            uint8_t o[20];
+            if (kom_hex(line + 7, o, 20)) kom_pair_owner(o);
         } else if (!strcmp(line, "hello")) {
             kom_request_hello();
         } else if (!strcmp(line, "panel")) {
-            if (kom_panel_on()) kom_panel_stop(); else kom_panel_start();
+            kom_panel_ap(!kom_panel_on());
         } else if (line[0]) {
-            Serial.println("[kom] komendy: status | msg <tekst> | pair | hello | panel");
+            Serial.println("[kom] komendy: status | msg <tekst> | pair 0x<portfel> | hello | panel");
         }
     }
 }
@@ -202,9 +216,10 @@ void kom_setup() {
     delay(300);
     Serial.printf("[kom] SENSMOS komunikator %s\n", KOM_FW_VERSION);
     pinMode(KOM_PIN_BUTTON, INPUT_PULLUP);
-    pinMode(KOM_PIN_LED, OUTPUT);
-    digitalWrite(KOM_PIN_LED, LOW);
     kom_ui_init();
+    s_led = kom_ui_has_oled() ? KOM_PIN_LED_V3 : KOM_PIN_LED_PAPER;
+    pinMode(s_led, OUTPUT);
+    digitalWrite(s_led, LOW);
     kom_ui_msg("start...", nullptr);
 
     s_selftest = selftest();
@@ -216,8 +231,7 @@ void kom_setup() {
     kom_fingerprint(s_fp);
     s_next_full  = KOM_HELLO_FULL_MS;
     s_next_short = BOOT_FULL[N_BOOT - 1] + KOM_HELLO_EVERY_MS;
-    // Pierwsze uruchomienie: bez PIN-u panel startuje sam — inaczej nie da się niczego ustawić.
-    if (!g_set.pin_set) kom_panel_start();
+    kom_panel_start();
 }
 
 void kom_loop() {
@@ -227,11 +241,12 @@ void kom_loop() {
     kom_panel_tick();
     rx_tick();
     hello_tick(now);
+    pair_tick(now);
     if (due(now, s_msg_until) && due(now, s_draw_at)) {
         if (kom_panel_on()) {
             char ssid[24];
             snprintf(ssid, sizeof(ssid), "SENSMOS-%s", s_id8);
-            kom_ui_panel(ssid, g_set.ap_pass, kom_panel_lan_ip());
+            kom_ui_panel(ssid, KOM_AP_PASS, kom_panel_lan_ip());
         } else {
             KomUiState s = { s_id8, s_fp, kom_radio_board(), kom_radio_ok(), s_selftest, s_rx_n, s_rx_rssi,
                              s_hello_n, s_hello_any ? (now - s_hello_at) / 1000 : UINT32_MAX, kom_radio_duty_ms() };
@@ -239,7 +254,7 @@ void kom_loop() {
         }
         s_draw_at = now + 1000;
     }
-    delay(kom_panel_on() ? 2 : 5);
+    delay(2);
 }
 
 #endif

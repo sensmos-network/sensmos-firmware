@@ -8,7 +8,6 @@
 #define KOM_VIS_UNSET   255
 
 struct KomSettings {
-    char     ap_pass[9];                  // hasło WiFi panelu, losowane przy 1. starcie
     bool     pin_set;
     uint8_t  vis;                         // 0 ukryty, 1 w pobliżu, 2 mapa, 255 nie wybrano
     char     name[17];

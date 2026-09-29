@@ -19,3 +19,4 @@ void kom_ui_init();
 void kom_ui_next();                           // krótkie naciśnięcie: kolejny ekran
 void kom_ui_draw(const KomUiState& s);
 void kom_ui_msg(const char* l1, const char* l2);
+void kom_ui_panel(const char* ssid, const char* pass, const char* lan_ip);

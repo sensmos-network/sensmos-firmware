@@ -54,4 +54,17 @@ void kom_ui_draw(const KomUiState& s) {
     s_oled.sendBuffer();
 }
 
+void kom_ui_panel(const char* ssid, const char* pass, const char* lan_ip) {
+    char l[32];
+    s_oled.clearBuffer();
+    s_oled.drawStr(0, 10, "PANEL WiFi");
+    s_oled.drawStr(0, 23, ssid);
+    snprintf(l, sizeof(l), "haslo: %s", pass);
+    s_oled.drawStr(0, 36, l);
+    s_oled.drawStr(0, 49, "http://192.168.4.1");
+    if (lan_ip && lan_ip[0]) { snprintf(l, sizeof(l), "LAN %s", lan_ip); s_oled.drawStr(0, 62, l); }
+    else s_oled.drawStr(0, 62, "PRG 3 s = wylacz");
+    s_oled.sendBuffer();
+}
+
 #endif

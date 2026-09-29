@@ -15,7 +15,8 @@ $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
 $cli = (Get-Command arduino-cli -ErrorAction SilentlyContinue).Source
-if (-not $cli) { $cli = "$env:LOCALAPPDATA\Programs\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe" }
+if (-not $cli) { $cli = "$env:LOCALAPPDATA\Programs\arduino-cli\arduino-cli.exe" }
+if (-not (Test-Path $cli)) { $cli = "$env:LOCALAPPDATA\Programs\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe" }
 if (-not (Test-Path $cli)) { throw "Nie znaleziono arduino-cli (Arduino IDE lub arduino-cli w PATH)" }
 
 # FQBN per rodzina. FlashSize=4M + min_spiffs: 2 sloty OTA po 1.9MB (od v0.35; NimBLE zmiescil app).
@@ -36,6 +37,8 @@ $fqbns = [ordered]@{
   'esp32c3' = 'esp32:esp32:esp32c3:PartitionScheme=min_spiffs,FlashSize=4M,CPUFreq=160'
   # ── warianty radiowe (SX1262) ── ten sam chip S3, wlasny target OTA "esp32s3-lora"
   'esp32s3-lora'        = 'esp32:esp32:esp32s3:PartitionScheme=min_spiffs,PSRAM=disabled,FlashSize=4M,CPUFreq=240'
+  # komunikator Heltec V3 — osobne urządzenie, nie node (src/kom/, -DSENSMOS_KOM=1)
+  'esp32s3-kom'         = 'esp32:esp32:esp32s3:PartitionScheme=min_spiffs,PSRAM=disabled,FlashSize=4M,CPUFreq=240'
   'esp32s2' = 'esp32:esp32:esp32s2:PartitionScheme=min_spiffs,PSRAM=disabled,FlashSize=4M,CPUFreq=240'
   'esp32c6' = 'esp32:esp32:esp32c6:PartitionScheme=min_spiffs,FlashSize=4M,CPUFreq=160'
 }
@@ -45,6 +48,7 @@ $fqbns = [ordered]@{
 # osobnego builda per plytka. Nowa plytka = wiersz w LORA_PINOUTS, nie nowy target.
 $defines = @{
   'esp32s3-lora' = '-DLORA_ENABLED=1'
+  'esp32s3-kom'  = '-DSENSMOS_KOM=1'
 }
 
 # Domyslnie TYLKO flota — warianty radiowe trzeba wybrac jawnie albo wziac 'all',

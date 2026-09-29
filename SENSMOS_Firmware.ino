@@ -30,6 +30,14 @@
 #include <esp_log.h>
 #include <esp_task_wdt.h>
 
+// Komunikator (build esp32s3-kom, -DSENSMOS_KOM=1) ma własny setup/loop — kod noda niżej
+// nie wchodzi do jego bina, a biny floty (SENSMOS_KOM 0) są bez zmian.
+#if SENSMOS_KOM
+#include "src/kom/kom_main.h"
+void setup() { kom_setup(); }
+void loop()  { kom_loop(); }
+#else
+
 bool node_running = false;
 
 // Logi IDF (esp-tls/mbedTLS/WiFi/lwIP) drukowały własną ścieżką (VFS), POZA mutexem drivera
@@ -232,3 +240,4 @@ void loop() {
     ota_tick();
     delay(10);
 }
+#endif  // SENSMOS_KOM

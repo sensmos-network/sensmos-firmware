@@ -10,7 +10,7 @@
 #define SENSMOS_KOM 0
 #endif
 
-#define KOM_FW_VERSION      "0.6-kom"
+#define KOM_FW_VERSION      "0.15-kom"
 
 // Klucz publiczny serwera (GET https://api.sensmos.com/v1/ldev/key). Stały: jego zmiana
 // unieważnia podpis sieciowy wszystkich urządzeń.
@@ -29,6 +29,7 @@
 #define KOM_PREAMBLE        8
 #define KOM_TX_POWER        14          // dBm — limit 25 mW ERP w podpaśmie 868.0–868.6
 #define KOM_DUTY_UP_MS_H    36000UL     // 1% z godziny na 868.1
+#define KOM_DUTY_DN_MS_H    180000UL    // połowa 10% podpasma 869.4–869.65 (reszta dla bram i nodów)
 #define KOM_CAD_TRIES       3
 
 // ── HELLO ─────────────────────────────────────────────────────
@@ -38,10 +39,23 @@
 #define KOM_HELLO_BOOT_MS   { 5000UL, 65000UL, 305000UL }
 #define KOM_HELLO_EVERY_MS  3600000UL
 #define KOM_HELLO_FULL_MS   86400000UL
+// Ogłoszenie na 869.525 (słyszą je inne komunikatory): po starcie, co 15 min z rozrzutem, na żądanie.
+#define KOM_ADVERT_FIRST_MS 8000UL
+#define KOM_ADVERT_MS       900000UL
+#define KOM_NEAR_MAX        32          // „W pobliżu”: komunikatory, bramy i nody usłyszane na 869.525
+#define KOM_WATCH_MAX       9           // ID apki + do 8 odcisków jej grup
+#define KOM_NAME_MAX        20          // nazwa w HELLO, bajty UTF-8 (10 znaków z polskimi literami)
+#define KOM_ADV_MAX         96          // HELLO apki-właściciela do ogłoszeń
+#define KOM_BUF_N           16          // ramki dla apki zebrane bez telefonu
 #define KOM_RETRY_MS        60000UL     // brak budżetu pasma → spróbuj za minutę
 
-// Hasło AP przy pierwszym uruchomieniu — stałe, żeby nie trzeba go było odczytywać z ekranu.
-#define KOM_AP_PASS         "12345678"
+// ── BLE (DOCS/dev/SPEC-komunikator-ble.md §2) ─────────────────
+#define KOM_BLE_SVC_UUID    "b7c1a000-6f2d-4e0a-9d3e-5a1c2b3d4e5f"
+#define KOM_BLE_RX_UUID     "b7c1a001-6f2d-4e0a-9d3e-5a1c2b3d4e5f"     // zapis apka → komunikator
+#define KOM_BLE_TX_UUID     "b7c1a002-6f2d-4e0a-9d3e-5a1c2b3d4e5f"     // powiadomienia komunikator → apka
+#define KOM_BLE_JSON_MAX    500         // jedna wiadomość JSON na zapis / powiadomienie
+#define KOM_BLE_PIN_TRIES   3           // tyle złych PIN-ów, potem auth odrzucane przez KOM_BLE_LOCK_MS
+#define KOM_BLE_LOCK_MS     60000UL
 
 // ── Heltec WiFi LoRa 32 V3 / Wireless Paper (ta sama tabela radia, inny ekran i dioda) ──
 #define KOM_PIN_BUTTON      0           // PRG
@@ -51,5 +65,14 @@
 #define KOM_OLED_SDA        17
 #define KOM_OLED_SCL        18
 #define KOM_OLED_RST        21
-#define KOM_BTN_LONG_MS     3000UL
-#define KOM_BTN_DOUBLE_MS   400UL
+// Wireless Paper V1.0: e-papier 2,13" DEPG0213BNS800 (SSD1680, 250×122) na własnym SPI, zasilanie
+// ekranu przez Vext na GPIO45 (LOW = wł.) — piny z przykładu Heltec Wireless_Paper_V1.0_FactoryTest.
+// Wyświetlacz (ustawienie z apki, NVS "disp"): e-papieru nie da się wykryć, OLED — tak.
+#define KOM_DISP_AUTO       0           // OLED, gdy odpowiada; bez OLED na Heltecu → Wireless Paper V1.1.1/V1.2 (bieżąca)
+#define KOM_DISP_NONE       1
+#define KOM_DISP_OLED       2           // SSD1306 0,96" I2C (Heltec V3)
+#define KOM_DISP_WP10       3           // Heltec Wireless Paper V1.0 (DEPG0213BNS800)
+#define KOM_DISP_WP11       4           // Heltec Wireless Paper V1.1 (LCMEN2R13EFC1)
+#define KOM_DISP_WP12       5           // Heltec Wireless Paper V1.1.1 / V1.2 (E0213A367)
+#define KOM_DISP_MAX        5
+#define KOM_EPD_MIN_MS      5000UL      // najczęstsze odświeżenie; pełne co 10 częściowych (bez smug)

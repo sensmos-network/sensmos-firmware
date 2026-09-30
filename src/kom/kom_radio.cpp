@@ -17,21 +17,27 @@ static volatile bool s_irq = false;
 ICACHE_RAM_ATTR static void on_dio1() { s_irq = true; }
 
 // Budżet nadawania: 60 kubełków po minucie (komunikator nie ma zegara UTC — liczymy na millis()).
-static uint32_t s_bucket[60];
+static uint32_t s_bucket[60], s_dbucket[60];              // 868.1 i 869.525
 static uint32_t s_bucket_min = 0;
 
 static void duty_roll() {
     uint32_t m = millis() / 60000UL;
-    if (m - s_bucket_min >= 60) { memset(s_bucket, 0, sizeof(s_bucket)); s_bucket_min = m; return; }
-    while (s_bucket_min < m) { s_bucket_min++; s_bucket[s_bucket_min % 60] = 0; }
+    if (m - s_bucket_min >= 60) {
+        memset(s_bucket, 0, sizeof(s_bucket)); memset(s_dbucket, 0, sizeof(s_dbucket));
+        s_bucket_min = m;
+        return;
+    }
+    while (s_bucket_min < m) { s_bucket_min++; s_bucket[s_bucket_min % 60] = 0; s_dbucket[s_bucket_min % 60] = 0; }
 }
 
-uint32_t kom_radio_duty_ms() {
-    duty_roll();
+static uint32_t sum60(const uint32_t* b) {
     uint32_t s = 0;
-    for (int i = 0; i < 60; i++) s += s_bucket[i];
+    for (int i = 0; i < 60; i++) s += b[i];
     return s;
 }
+
+uint32_t kom_radio_duty_ms()    { duty_roll(); return sum60(s_bucket); }
+uint32_t kom_radio_duty_dn_ms() { duty_roll(); return sum60(s_dbucket); }
 
 // Czas w eterze (BW125, nagłówek jawny, CRC, LDRO od SF11) — wzór z dokumentacji Semtecha.
 uint32_t kom_airtime_ms(uint8_t sf, size_t len) {
@@ -87,13 +93,13 @@ void kom_radio_random(uint8_t* buf, size_t n) {
 static bool s_rx_started = false;
 static void ensure_rx() { if (!s_rx_started && s_ok) { back_to_rx(); s_rx_started = true; } }
 
-int32_t kom_radio_send_up(const uint8_t* f, size_t n) {
+static int32_t send_on(float freq, uint8_t sf, uint32_t* bucket, uint32_t budget, const uint8_t* f, size_t n) {
     if (!s_ok) return -2;
-    uint32_t est = kom_airtime_ms(KOM_UP_SF, n);
-    if (kom_radio_duty_ms() + est > KOM_DUTY_UP_MS_H) return -1;
+    duty_roll();
+    if (sum60(bucket) + kom_airtime_ms(sf, n) > budget) return -1;
     s_r->standby();
-    s_r->setFrequency(KOM_UP_FREQ);
-    s_r->setSpreadingFactor(KOM_UP_SF);
+    s_r->setFrequency(freq);
+    s_r->setSpreadingFactor(sf);
     s_r->setOutputPower(KOM_TX_POWER);
     for (int i = 0; i < KOM_CAD_TRIES; i++) {             // słuchaj przed nadaniem
         if (s_r->scanChannel() != RADIOLIB_LORA_DETECTED) break;
@@ -106,8 +112,16 @@ int32_t kom_radio_send_up(const uint8_t* f, size_t n) {
     s_rx_started = true;
     if (st != RADIOLIB_ERR_NONE) { Serial.printf("[kom] TX błąd %d\n", st); return -2; }
     duty_roll();
-    s_bucket[s_bucket_min % 60] += air;
+    bucket[s_bucket_min % 60] += air;
     return (int32_t)air;
+}
+
+int32_t kom_radio_send_up(const uint8_t* f, size_t n) {
+    return send_on(KOM_UP_FREQ, KOM_UP_SF, s_bucket, KOM_DUTY_UP_MS_H, f, n);
+}
+
+int32_t kom_radio_send_direct(const uint8_t* f, size_t n) {
+    return send_on(KOM_DN_FREQ, KOM_DN_SF, s_dbucket, KOM_DUTY_DN_MS_H, f, n);
 }
 
 bool kom_radio_poll(uint8_t* buf, size_t cap, size_t* len, float* rssi, float* snr) {

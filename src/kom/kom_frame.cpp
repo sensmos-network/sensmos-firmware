@@ -29,7 +29,7 @@ size_t kom_build_hello(uint8_t* out, const uint8_t pub[32], const uint8_t id4[4]
     static const uint8_t BCAST[4] = { 0xFF, 0xFF, 0xFF, 0xFF };
     size_t n = header(out, KOM_MODE_HELLO, BCAST, id4, ctr);
     size_t nl = name ? strlen(name) : 0;
-    if (nl > 16) nl = 16;
+    if (nl > KOM_NAME_MAX) nl = KOM_NAME_MAX;
     uint8_t hf = vis & 3;
     if (withPub) hf |= 0x04;
     if (own8)    hf |= 0x08;
@@ -120,6 +120,86 @@ bool kom_open_down(const uint8_t* f, size_t n, const uint8_t id4[4], const uint8
     } else ok = false;
     memset(okm, 0, sizeof(okm));
     return ok;
+}
+
+void kom_hkdf(const uint8_t* ikm, size_t n, const uint8_t* info, size_t infon, uint8_t* okm, size_t okmn) {
+    uint8_t salt[32] = {0};
+    mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), salt, 32, ikm, n, info, infon, okm, okmn);
+}
+
+void kom_ctr_crypt(const uint8_t k[32], const uint8_t nonce[8], const uint8_t src4[4],
+                   const uint8_t* in, size_t n, uint8_t* out) {
+    uint8_t iv[16] = {0}, sb[16];
+    size_t off = 0;
+    memcpy(iv, nonce, 8);
+    memcpy(iv + 8, src4, 4);
+    mbedtls_aes_context aes;
+    mbedtls_aes_init(&aes);
+    mbedtls_aes_setkey_enc(&aes, k, 256);
+    mbedtls_aes_crypt_ctr(&aes, n, &off, iv, sb, in, out);
+    mbedtls_aes_free(&aes);
+}
+
+void kom_group_id(const uint8_t key[32], uint8_t gid4[4]) {
+    static const char L[] = "sensmos-grp-id-v1";
+    uint8_t mac[32];
+    kom_hmac(key, 32, (const uint8_t*)L, sizeof(L) - 1, mac);
+    memcpy(gid4, mac, 4);
+}
+
+bool kom_open_group(const uint8_t* f, size_t n, const uint8_t key[32], char* text, size_t cap) {
+    if (n < 36 || n > KOM_FRAME_MAX || f[0] != 0xE0 || f[1] != 0x04 || (f[2] & 3) != KOM_MODE_GROUP) return false;
+    static const char L[] = "sensmos-grp-msg-v1";
+    uint8_t gid[4], okm[64], mac[32];
+    kom_group_id(key, gid);
+    if (memcmp(f + 3, gid, 4)) return false;
+    kom_hkdf(key, 32, (const uint8_t*)L, sizeof(L) - 1, okm, 64);
+    kom_hmac(okm + 32, 32, f, n - 12, mac);
+    size_t tl = n - 15 - 8 - 12;
+    bool ok = !memcmp(mac, f + n - 12, 8) && tl < cap;
+    if (ok) { kom_ctr_crypt(okm, f + 15, f + 7, f + 23, tl, (uint8_t*)text); text[tl] = 0; }
+    memset(okm, 0, sizeof(okm));
+    return ok;
+}
+
+// okm kierunku nadawca → adresat: HKDF(X25519(my, peer), "sensmos-ldev-e2e-v1" ‖ senderPub ‖ recipientPub)
+static bool e2e_keys(const uint8_t myPriv[32], const uint8_t peerPub[32], const uint8_t senderPub[32],
+                     const uint8_t recipientPub[32], uint8_t okm[64]) {
+    static const char L[] = "sensmos-ldev-e2e-v1";
+    uint8_t ss[32], info[sizeof(L) - 1 + 64];
+    if (!kom_x25519(myPriv, peerPub, ss)) return false;
+    memcpy(info, L, sizeof(L) - 1); memcpy(info + sizeof(L) - 1, senderPub, 32); memcpy(info + sizeof(L) - 1 + 32, recipientPub, 32);
+    kom_hkdf(ss, 32, info, sizeof(info), okm, 64);
+    memset(ss, 0, sizeof(ss));
+    return true;
+}
+
+bool kom_open_priv(const uint8_t* f, size_t n, const uint8_t myPriv[32], const uint8_t myPub[32],
+                   uint8_t senderPub[32], char* text, size_t cap) {
+    if (n < 15 + 32 + 8 + 1 + 12 || n > KOM_FRAME_MAX || f[0] != 0xE0 || f[1] != 0x04 || (f[2] & 3) != KOM_MODE_PRIV || !(f[2] & 0x10)) return false;
+    uint8_t h[32], okm[64], mac[32];
+    kom_sha256(f + 15, 32, h);
+    if (memcmp(h, f + 7, 4)) return false;                       // PUB nie pasuje do src4
+    if (!e2e_keys(myPriv, f + 15, f + 15, myPub, okm)) return false;
+    kom_hmac(okm + 32, 32, f, n - 12, mac);
+    size_t tl = n - 15 - 32 - 8 - 12;
+    bool ok = !memcmp(mac, f + n - 12, 8) && tl < cap;
+    if (ok) { kom_ctr_crypt(okm, f + 47, f + 7, f + 55, tl, (uint8_t*)text); text[tl] = 0; memcpy(senderPub, f + 15, 32); }
+    memset(okm, 0, sizeof(okm));
+    return ok;
+}
+
+size_t kom_build_ack_e2e(uint8_t* out, const uint8_t myPriv[32], const uint8_t myPub[32], const uint8_t myId4[4],
+                         const uint8_t peerPub[32], const uint8_t knet[32], uint32_t ctr, uint32_t ref) {
+    uint8_t h[32], okm[64], mac[32];
+    if (!e2e_keys(myPriv, peerPub, myPub, peerPub, okm)) return 0;
+    kom_sha256(peerPub, 32, h);
+    size_t n = header(out, KOM_MODE_ACK, h, myId4, ctr);
+    out[n++] = ref >> 24; out[n++] = ref >> 16; out[n++] = ref >> 8; out[n++] = ref;
+    kom_hmac(okm + 32, 32, out, n, mac);
+    memcpy(out + n, mac, 8); n += 8;
+    memset(okm, 0, sizeof(okm));
+    return seal(out, n, knet);
 }
 
 size_t kom_build_ack(uint8_t* out, const uint8_t id4[4], const uint8_t knet[32], uint32_t ctr, uint32_t ref) {

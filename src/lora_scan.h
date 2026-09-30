@@ -76,7 +76,9 @@ void lora_cmd_hook_set(const char* url, bool use_get);
 // ── Radio na zlecenie BE (baza pod ramkę CMD 0x03 — model v2, Krok 3) ──
 // Downlink z BE (komenda WS lora_tx): nadaj gotową surową ramkę binarną (hex). BE zbudował
 // i uwierzytelnił ją seedem ODBIORCY. false = zły hex / nie nasza ramka / kolejka / brak radia.
-bool lora_tx_raw_hex(const char* frame_hex);
+// freq > 0 = nod jak brama (PULL_RESP): nadanie na kanale od BE (BW125, CR4/5, sync 0x34),
+// potem powrót na kanał nasłuchu; freq = 0 = kanał domowy.
+bool lora_tx_raw_hex(const char* frame_hex, float freq = 0, uint8_t sf = 0, int8_t pw = 0);
 
 // Owner-seed per-owner z BE (po szyfrowanym WS) — 32-B klucz kodeka SMOM (CMD). Cache NVS.
 void lora_owner_seed_set(const uint8_t seed[32]);

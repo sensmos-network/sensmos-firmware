@@ -1,56 +1,33 @@
 #include "kom_config.h"
 #if SENSMOS_KOM
 #include "kom_store.h"
-#include "kom_id.h"
 #include <Arduino.h>
 #include <Preferences.h>
 
 KomSettings g_set;
 static const char* NS = "sensmos_kom";
 
-static void pin_hash(const char* pin, uint8_t out[32]) {
-    uint8_t buf[64];
-    size_t n = strnlen(pin, 16);
-    memcpy(buf, pin, n);
-    memcpy(buf + n, g_kom.id4, 4);                 // ten sam PIN na dwóch urządzeniach = różne skróty
-    kom_sha256(buf, n + 4, out);
-}
-
 void kom_store_load() {
     Preferences p;
     p.begin(NS, false);
     memset(&g_set, 0, sizeof(g_set));
-    g_set.pin_set  = p.isKey("pinh");
-    g_set.vis      = p.getUChar("vis", KOM_VIS_UNSET);
+    p.getString("bpin", g_set.pin, sizeof(g_set.pin));
+    g_set.vis       = p.getUChar("vis", KOM_VIS_UNSET);
+    g_set.disp      = p.getUChar("disp", KOM_DISP_AUTO);
+    if (g_set.disp > KOM_DISP_MAX) g_set.disp = KOM_DISP_AUTO;
+    g_set.lang      = p.getUChar("lang", 0);
     p.getString("name", g_set.name, sizeof(g_set.name));
-    g_set.tpl_n    = p.getUChar("tpln", 0);
-    if (g_set.tpl_n > KOM_TPL_MAX) g_set.tpl_n = 0;
-    for (int i = 0; i < g_set.tpl_n; i++) {
-        char k[6]; snprintf(k, sizeof(k), "tpl%d", i);
-        p.getString(k, g_set.tpl[i], sizeof(g_set.tpl[i]));
-    }
-    p.getString("wssid", g_set.wifi_ssid, sizeof(g_set.wifi_ssid));
-    p.getString("wpass", g_set.wifi_pass, sizeof(g_set.wifi_pass));
+    g_set.owner_set = p.isKey("owner") && p.getBytes("owner", g_set.owner, 20) == 20;
+    g_set.nw = p.getUChar("nw", 0);
+    if (g_set.nw > KOM_WATCH_MAX || p.getBytes("watch", g_set.watch, 4 * g_set.nw) != 4u * g_set.nw) g_set.nw = 0;
+    g_set.adv_n = p.getUChar("advn", 0);
+    if (g_set.adv_n > KOM_ADV_MAX || p.getBytes("adv", g_set.adv, g_set.adv_n) != g_set.adv_n) g_set.adv_n = 0;
     p.end();
-}
-
-bool kom_pin_check(const char* pin) {
-    uint8_t want[32], have[32];
-    Preferences p; p.begin(NS, true);
-    bool ok = p.getBytes("pinh", want, 32) == 32;
-    p.end();
-    if (!ok) return false;
-    pin_hash(pin, have);
-    uint8_t d = 0;
-    for (int i = 0; i < 32; i++) d |= want[i] ^ have[i];
-    return d == 0;
 }
 
 void kom_pin_save(const char* pin) {
-    uint8_t h[32];
-    pin_hash(pin, h);
-    Preferences p; p.begin(NS, false); p.putBytes("pinh", h, 32); p.end();
-    g_set.pin_set = true;
+    strlcpy(g_set.pin, pin ? pin : "", sizeof(g_set.pin));
+    Preferences p; p.begin(NS, false); p.putString("bpin", g_set.pin); p.end();
 }
 
 void kom_vis_save(uint8_t vis) {
@@ -58,28 +35,44 @@ void kom_vis_save(uint8_t vis) {
     g_set.vis = vis;
 }
 
+void kom_disp_save(uint8_t disp) {
+    Preferences p; p.begin(NS, false); p.putUChar("disp", disp); p.end();
+    g_set.disp = disp;
+}
+
+void kom_lang_save(uint8_t lang) {
+    Preferences p; p.begin(NS, false); p.putUChar("lang", lang); p.end();
+    g_set.lang = lang;
+}
+
 void kom_name_save(const char* name) {
     strlcpy(g_set.name, name ? name : "", sizeof(g_set.name));
     Preferences p; p.begin(NS, false); p.putString("name", g_set.name); p.end();
 }
 
+void kom_owner_save(const uint8_t owner[20]) {
+    memcpy(g_set.owner, owner, 20);
+    g_set.owner_set = true;
+    Preferences p; p.begin(NS, false); p.putBytes("owner", owner, 20); p.end();
+}
 
-void kom_tpl_save() {
+void kom_watch_save(const uint8_t* ids, uint8_t n) {
+    if (n > KOM_WATCH_MAX) n = KOM_WATCH_MAX;
+    memcpy(g_set.watch, ids, 4 * n);
+    g_set.nw = n;
     Preferences p; p.begin(NS, false);
-    p.putUChar("tpln", g_set.tpl_n);
-    for (int i = 0; i < KOM_TPL_MAX; i++) {
-        char k[6]; snprintf(k, sizeof(k), "tpl%d", i);
-        if (i < g_set.tpl_n) p.putString(k, g_set.tpl[i]); else p.remove(k);
-    }
+    p.putUChar("nw", n);
+    p.putBytes("watch", g_set.watch, 4 * n);
     p.end();
 }
 
-void kom_wifi_save(const char* ssid, const char* pass) {
-    strlcpy(g_set.wifi_ssid, ssid ? ssid : "", sizeof(g_set.wifi_ssid));
-    strlcpy(g_set.wifi_pass, pass ? pass : "", sizeof(g_set.wifi_pass));
+void kom_adv_save(const uint8_t* f, uint8_t n) {
+    if (n > KOM_ADV_MAX) n = 0;
+    memcpy(g_set.adv, f, n);
+    g_set.adv_n = n;
     Preferences p; p.begin(NS, false);
-    p.putString("wssid", g_set.wifi_ssid);
-    p.putString("wpass", g_set.wifi_pass);
+    p.putUChar("advn", n);
+    if (n) p.putBytes("adv", g_set.adv, n); else p.remove("adv");
     p.end();
 }
 

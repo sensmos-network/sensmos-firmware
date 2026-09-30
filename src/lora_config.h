@@ -122,6 +122,8 @@ struct LoraPinout {
 
 // ══ TX na zlecenie BE (baza pod ramkę CMD 0x03 — model v2) ══
 #define LORA_MSG_TXQ_DEPTH    3         // surowe ramki loop -> task radiowy (nadanie)
+#define LORA_DEV_TXQ_DEPTH    4         // ramki z kanałem od BE (lora_tx + freq) — nod jak brama
+#define LORA_DEV_TX_TTL_S     60        // starsze nie wychodzą: BE i tak ponawia, może już inną drogą
 
 // ══ LoRa awaryjne (0.91) ══
 // Node z martwym uplinkiem dokleja do beaconu ogon " E1 <v1>,<v2>,..." — wartości ≤4 encji

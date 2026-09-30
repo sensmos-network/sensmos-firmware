@@ -106,10 +106,46 @@ static const char* ago_txt(uint32_t s, char* out, size_t cap) {
     return out;
 }
 
+// Łamanie po słowach (GFX łamie po znaku), najwyżej `maxLines` linii — reszta ucięta z „...”.
+static void epd_text(const char* text, int16_t x, int16_t y, int16_t maxw, uint8_t maxLines, int16_t lineH) {
+    char lines[4][64];
+    uint8_t n = 0;
+    size_t ll = 0;
+    bool more = false;
+    int16_t bx, by; uint16_t bw, bh;
+    const char* p = text;
+    lines[0][0] = 0;
+    while (*p) {
+        while (*p == ' ') p++;
+        if (!*p) break;
+        const char* ws = p;
+        while (*p && *p != ' ') p++;
+        char cand[64];
+        snprintf(cand, sizeof(cand), "%s%s%.*s", lines[n], ll ? " " : "", (int)(p - ws), ws);
+        s_epd->getTextBounds(cand, 0, 0, &bx, &by, &bw, &bh);
+        if (bw <= maxw || ll == 0) { strlcpy(lines[n], cand, sizeof(lines[n])); ll = strlen(lines[n]); continue; }
+        if (n + 1 >= maxLines) { more = true; break; }
+        n++;
+        snprintf(lines[n], sizeof(lines[n]), "%.*s", (int)(p - ws), ws);
+        ll = strlen(lines[n]);
+    }
+    if (more) {                                             // ostatnia linia z „...”, docięta do szerokości
+        char* last = lines[n];
+        for (;;) {
+            char cand[68];
+            snprintf(cand, sizeof(cand), "%s...", last);
+            s_epd->getTextBounds(cand, 0, 0, &bx, &by, &bw, &bh);
+            if (bw <= maxw || !last[0]) { strlcpy(last, cand, 64); break; }
+            last[strlen(last) - 1] = 0;
+        }
+    }
+    for (uint8_t i = 0; i <= n; i++) { s_epd->setCursor(x, y + i * lineH); s_epd->print(lines[i]); }
+}
+
 // 250×122: nagłówek (nazwa, ID, stan), pod kreską ostatnia wiadomość z apki (przez BLE „show”)
 // albo — gdy telefonu nie ma — ile ramek czeka; na dole: kto w pobliżu, ostatni odbiór, pasmo.
 static void epd_draw(const KomUiState& s) {
-    char name[20], l1[40], l2[101], head[48], st[48], foot[64], ago[10];
+    char name[20], l1[40], l2[101], head[48], st[48], foot[64], ago[10], rssi[10];
     ascii(g_set.name[0] ? g_set.name : "", name, sizeof(name));
     ascii(s_epd_l1, l1, sizeof(l1));
     ascii(s_epd_l2, l2, sizeof(l2));
@@ -121,7 +157,7 @@ static void epd_draw(const KomUiState& s) {
         snprintf(l2, sizeof(l2), "%s", kom_str(S_CONNECT));
     }
     snprintf(foot, sizeof(foot), kom_str(S_FOOT), s.near_kom, ago_txt(s.rx_ago_s, ago, sizeof(ago)),
-             s.rx_ago_s == UINT32_MAX ? "" : (snprintf(ago, sizeof(ago), "%.0fdBm", s.rx_rssi), ago),
+             s.rx_ago_s == UINT32_MAX ? "" : (snprintf(rssi, sizeof(rssi), "%.0fdBm", s.rx_rssi), rssi),
              s.duty_ms / 1000.0f, (unsigned long)(KOM_DUTY_UP_MS_H / 1000));
     uint32_t h = fnv(foot, fnv(l2, fnv(l1, fnv(st, fnv(head)))));
     uint32_t now = millis();
@@ -148,10 +184,7 @@ static void epd_draw(const KomUiState& s) {
     }
     if (l2[0]) {
         s_epd->setFont(&FreeSans9pt7b);
-        s_epd->setTextWrap(true);
-        s_epd->setCursor(2, l1[0] ? 66 : 50);
-        s_epd->print(l2);
-        s_epd->setTextWrap(false);
+        epd_text(l2, 2, l1[0] ? 66 : 50, s_epd->width() - 4, l1[0] ? 3 : 4, 15);
     }
     s_epd->setFont(nullptr);
     s_epd->drawLine(0, 111, s_epd->width() - 1, 111, BLACK);

@@ -10,7 +10,7 @@
 #define SENSMOS_KOM 0
 #endif
 
-#define KOM_FW_VERSION      "0.15-kom"
+#define KOM_FW_VERSION      "0.16-kom"
 
 // Klucz publiczny serwera (GET https://api.sensmos.com/v1/ldev/key). Stały: jego zmiana
 // unieważnia podpis sieciowy wszystkich urządzeń.

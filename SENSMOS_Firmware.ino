@@ -158,6 +158,9 @@ void setup() {
         // WiFi mogą wylądować w regionie po BT zamiast ciąć główny region (mniejsza fragmentacja
         // pod TLS). Region BT i tak nie zleje się z głównym heapem (stały adres z linkera).
         // Bezpieczne: gdy WiFi nie wstanie → ESP.restart() → świeży boot z pamięcią BT z powrotem.
+        // Licznik bootów OTA PRZED wifi_init: nowy FW, który nie podnosi WiFi (pętla
+        // restart → BLE → restart), też musi się cofnąć po OTA_CONFIRM_BOOTS_MAX próbach.
+        ota_init();
         uint32_t before = ESP.getFreeHeap();
         esp_bt_controller_mem_release(ESP_BT_MODE_BTDM);
         LOGI("boot", "BT mem released +%uk (before WiFi)", (ESP.getFreeHeap() - before) / 1024);
@@ -174,7 +177,6 @@ void setup() {
             net_worker_init();   // po traceroute_init (w checknet_init) — worker używa traceroute
             mqtt_pub_init();     // klient MQTT (LEKKIE): config z NVS, publish do brokera w LAN
             wifi_env_init();     // fingerprint otoczenia WiFi (hashe, skan na worze co 6h)
-            ota_init();
             pairing_init();      // klucze parowania z NVS — uprawnienie do tunelu (zastąpiły flagę remote_ok)
             tunnel_init();       // RemoteTerminal — RAM (~27KB) dopiero przy tun_open
 #if LORA_ENABLED

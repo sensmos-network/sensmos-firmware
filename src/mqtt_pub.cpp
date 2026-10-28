@@ -185,7 +185,7 @@ static void publish_discovery(const char* eid, const char* unit) {
 // Publish wszystkich encji pub+own (retained). Pełny zrzut co MQTT_ENT_EVERY_MS — prostota
 // zamiast śledzenia zmian: 32 małe pakiety/min na brokera w LAN to nic, a HA ma zawsze świeże.
 static void publish_entities() {
-    char eid[36], val[40], unit[12]; unsigned long ts;
+    char eid[36], val[64], unit[12]; unsigned long ts;
     char t[80], pl[96];
     for (int pass = 0; pass < 2; pass++) {
         int n = pass == 0 ? entity_pub_count() : entity_own_count();

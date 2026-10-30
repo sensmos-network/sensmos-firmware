@@ -165,6 +165,7 @@ static void send_identify() {
     doc["enc"]       = 1;             // wymagam szyfrowania kanału (ws_enc)
     doc["enonce"]    = enonce_hex;    // pół soli klucza sesji
     doc["firmware"]  = FW_VERSION;
+    doc["proto"]     = WS_PROTO;
     if (pairing_has_key()) doc["remote"] = 1;   // sparowany → BE wie, że node może otworzyć tunel
 #if LORA_ENABLED
     // Zdolność radiowa wykryta przy starcie (SX1262 faktycznie odpowiedział) — BE wysyła

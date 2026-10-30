@@ -6,6 +6,8 @@
 #include "ws_client.h"
 #include "checknet.h"
 #include "config.h"
+#include "identity.h"
+#include <ArduinoJson.h>
 #include <math.h>
 
 // Zapis float do encji (store) jako string
@@ -374,13 +376,15 @@ static void run_send(Script& s, ScriptStep& step) {
     char payload[192] = "{}";
     fill_template(step.payload_tmpl, payload, sizeof(payload), nullptr, nullptr, true);
 
+    // Typ `message` jak w http_messages.cpp — BE nie zna `event` (kontrakt/protokol/ws.md §2.1).
+    JsonDocument doc;
+    doc["type"]    = "message";
+    doc["from"]    = g_device_id;
+    doc["to"]      = step.send_to;
+    doc["eid"]     = step.message_id;
+    doc["payload"] = payload;
     char msg[512];
-    snprintf(msg, sizeof(msg),
-        "{\"type\":\"event\","          // Etap E: → "message"
-        "\"to\":\"%s\","
-        "\"eid\":\"%s\","
-        "\"payload\":\"%s\"}",
-        step.send_to, step.message_id, payload);
+    if (serializeJson(doc, msg, sizeof(msg)) >= sizeof(msg)) return;
     ws_client_send_raw(msg);
 }
 

@@ -6,6 +6,7 @@
 // Sufiks "-lora" dokleja sie sam z flagi kompilacji, zeby build radiowy dalo sie odroznic
 // w panelu i zeby rollout floty nigdy nie zlapal plytek z radiem (rozne stringi wersji).
 #define FW_BASE "1.01"
+#define WS_PROTO 1          // wersja protokołu WS: kontrakt/protokol/ws.md §1.1
 #if LORA_ENABLED
   #define FW_VERSION FW_BASE "-lora2"
 #else

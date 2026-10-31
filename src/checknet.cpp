@@ -183,29 +183,30 @@ static void cn_send_results() {
     // Referencja do tablicy: sizeof(buf) dalej = 3072 (18 użyć niżej bez zmian).
     char (&buf)[TX_SCRATCH_LEN] = g_tx_scratch;
     size_t n = 0;
-    n += snprintf(buf + n, sizeof(buf) - n, "{\"type\":\"check_result\",\"results\":[");
+    // Wiadomość `measure` (kontrakt/protokol/measure.md §2): jeden rekord na job; pola rodzaju
+    // (HTTP, DNS, trasa) i pozycja celu w "x" — BE przelicza to na wyniki checknetu.
+    n += snprintf(buf + n, sizeof(buf) - n, "{\"type\":\"measure\",\"v\":1,\"m\":[");
     for (int i = 0; i < g_jobCount && n < sizeof(buf); i++) {
         CnJob&    j = g_jobs[i];
         CnResult& r = g_res[i];
-        // wspólne
+        bool gw = strcmp(j.target_kind, "gateway") == 0;
         n += snprintf(buf + n, sizeof(buf) - n,
-            "%s{\"id\":%d,\"kind\":\"%s\",\"host\":\"%s\",\"target_kind\":\"%s\","
-            "\"to_region\":\"%s\",\"to_lat\":\"%s\",\"to_lon\":\"%s\",\"ok\":%s",
-            i ? "," : "", i, j.kind, j.host, j.target_kind,
-            j.to_region, j.to_lat, j.to_lon, r.ok ? "true" : "false");
-        // kind-specific
+            "%s{\"kind\":\"net.%s\",\"target\":\"%s\",\"tk\":\"%s\",\"ok\":%s",
+            i ? "," : "", gw ? "lan" : j.kind, j.host, j.target_kind, r.ok ? "true" : "false");
         if (strcmp(j.kind, "icmp") == 0) {
-            n += snprintf(buf + n, sizeof(buf) - n, ",\"loss_pct\":%.1f,\"samples\":%d", r.loss_pct, r.samples);
-            if (r.ok) n += snprintf(buf + n, sizeof(buf) - n, ",\"rtt_ms\":%.1f,\"jitter_ms\":%.1f", r.rtt_ms, r.jitter_ms);
-        } else if (strcmp(j.kind, "tcp") == 0) {
-            if (r.ok) n += snprintf(buf + n, sizeof(buf) - n, ",\"connect_ms\":%.1f", r.rtt_ms);
-        } else if (strcmp(j.kind, "dns") == 0) {
-            if (r.ok) n += snprintf(buf + n, sizeof(buf) - n,
-                ",\"resolve_ms\":%.1f,\"resolved_ip\":\"%s\",\"match\":%s",
-                r.rtt_ms, r.resolved_ip, r.match ? "true" : "false");
+            n += snprintf(buf + n, sizeof(buf) - n, ",\"loss\":%.1f,\"n\":%d", r.loss_pct, r.samples);
+            if (r.ok) n += snprintf(buf + n, sizeof(buf) - n, ",\"rtt\":%.1f,\"jit\":%.1f", r.rtt_ms, r.jitter_ms);
+        } else if (r.ok && strcmp(j.kind, "trace") != 0) {
+            n += snprintf(buf + n, sizeof(buf) - n, ",\"rtt\":%.1f", r.rtt_ms);
+        }
+        n += snprintf(buf + n, sizeof(buf) - n, ",\"x\":{\"to_region\":\"%s\",\"to_lat\":\"%s\",\"to_lon\":\"%s\"",
+            j.to_region, j.to_lat, j.to_lon);
+        if (strcmp(j.kind, "dns") == 0 && r.ok) {
+            n += snprintf(buf + n, sizeof(buf) - n, ",\"resolved_ip\":\"%s\",\"match\":%s",
+                r.resolved_ip, r.match ? "true" : "false");
         } else if (strcmp(j.kind, "http") == 0) {
             n += snprintf(buf + n, sizeof(buf) - n, ",\"status_code\":%d", r.status_code);
-            if (r.ok) n += snprintf(buf + n, sizeof(buf) - n, ",\"total_ms\":%.1f,\"ttfb_ms\":%.1f", r.rtt_ms, r.ttfb_ms);
+            if (r.ok) n += snprintf(buf + n, sizeof(buf) - n, ",\"ttfb_ms\":%.1f", r.ttfb_ms);
         }
         if (g_tr_job == i) {
             if (g_tr_lh_host[0]) {
@@ -227,7 +228,7 @@ static void cn_send_results() {
             }
             n += snprintf(buf + n, sizeof(buf) - n, "]");
         }
-        n += snprintf(buf + n, sizeof(buf) - n, "}");
+        n += snprintf(buf + n, sizeof(buf) - n, "}}");
     }
     n += snprintf(buf + n, sizeof(buf) - n, "]}");
     if (n >= sizeof(buf)) { LOGW("cn", "result buffer overflow — skipped"); return; }

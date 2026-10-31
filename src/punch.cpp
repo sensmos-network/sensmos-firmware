@@ -171,13 +171,12 @@ void punch_on_net_result(const NetResult& nr) {
     // jest rzadki i dispatch wyniku leci w loop (single-writer), więc nie koliduje z batchem. −1.5KB .bss.
     char* buf = g_tx_scratch;
     int n = snprintf(buf, TX_SCRATCH_LEN,
-        "{\"type\":\"check_result\",\"results\":[{\"id\":0,\"kind\":\"punch\",\"host\":\"%s\","
-        "\"target_kind\":\"peer\",\"to_region\":\"%s\",\"to_lat\":\"%s\",\"to_lon\":\"%s\","
-        "\"ok\":%s,\"loss_pct\":%.1f,\"samples\":%d",
-        g_sess.host, g_sess.to_region, g_sess.to_lat, g_sess.to_lon,
-        r.ok ? "true" : "false", r.loss_pct, r.samples);
-    if (r.ok) n += snprintf(buf + n, TX_SCRATCH_LEN - n, ",\"rtt_ms\":%.1f,\"jitter_ms\":%.1f",
-                            r.rtt_ms, r.jitter_ms);
+        "{\"type\":\"measure\",\"v\":1,\"m\":[{\"kind\":\"net.punch\",\"target\":\"%s\",\"tk\":\"peer\","
+        "\"ok\":%s,\"loss\":%.1f,\"n\":%d",
+        g_sess.host, r.ok ? "true" : "false", r.loss_pct, r.samples);
+    if (r.ok) n += snprintf(buf + n, TX_SCRATCH_LEN - n, ",\"rtt\":%.1f,\"jit\":%.1f", r.rtt_ms, r.jitter_ms);
+    n += snprintf(buf + n, TX_SCRATCH_LEN - n, ",\"x\":{\"to_region\":\"%s\",\"to_lat\":\"%s\",\"to_lon\":\"%s\"",
+                  g_sess.to_region, g_sess.to_lat, g_sess.to_lon);
     // Punch-trace: trasa ICMP do endpointu peera (BE → trace_paths, korpus lokalizacji hopów)
     if (nr.hop_n > 0) {
         n += snprintf(buf + n, TX_SCRATCH_LEN - n, ",\"trace_ip\":\"%s\",\"reached\":%s,\"hops\":[",
@@ -194,7 +193,7 @@ void punch_on_net_result(const NetResult& nr) {
         }
         n += snprintf(buf + n, TX_SCRATCH_LEN - n, "]");
     }
-    n += snprintf(buf + n, TX_SCRATCH_LEN - n, "}]}");
+    n += snprintf(buf + n, TX_SCRATCH_LEN - n, "}}]}");
     if (n < (int)TX_SCRATCH_LEN) ws_client_send_raw(buf);
     LOGI("punch", "%s ok=%d rtt=%.0fms n=%d loss=%.0f%%",
          g_sess.host, r.ok, r.rtt_ms, r.samples, r.loss_pct);

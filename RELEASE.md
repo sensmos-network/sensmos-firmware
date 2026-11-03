@@ -9,6 +9,9 @@
    (nod cofnął się sam, nie wraca, nie przyjął drugiego OTA) blokuje wersję dla wszystkich.
    Powód: błąd w funkcji zawsze poprawimy następnym OTA, ale zepsute OTA w nowej wersji = flota utknięta na zawsze.
 5. **Promocja** (`POST /v1/admin/fw/promote`) tylko dla `ready`: biny z archiwum stają się bieżącym OTA.
-6. **Rollout falami**: testerzy → kilka % floty → reszta; fala wstrzymana, gdy nody nie wracają na nowej wersji.
+6. **Rollout falami — automat** (`backend/fale.ps1 start <wersja>`, od 2026-11-03): tylko wersja `ready`;
+   fale 2 % → 10 % → 30 % → reszta nodów danego wariantu, fala ≥ 1 h, dalej gdy ≥ 70 % nodów fali zgłosi nową
+   wersję. Auto-wstrzymanie: 1 nod wrócił na starą wersję, > 10 % nodów zamilkło po OTA, albo po 6 h < 70 %.
+   Wznowienie / przerwanie tylko ręcznie (`fale.ps1 wznow|przerwij <nr>`, `stan`). Po ostatniej fali promocja sama.
    Nigdy cała flota naraz. Nod sam cofa się do poprzedniej partycji, gdy nowa wersja nie podniesie WS w 5 min.
 7. Web-flasher (`sensmos.com/flash`) dopiero po promocji; manifesty w `backend/public/flash/`.

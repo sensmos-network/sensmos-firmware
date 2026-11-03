@@ -5,6 +5,14 @@ Firmware ships via **OTA** (app-only bins served by the backend) and the **web f
 This file is the version history reconstructed from commits. Current version:
 `FW_VERSION` in `src/data_sender.h`.
 
+## 1.11 — 2026-11-03
+- **Node logs on request** (`log.cpp`, `ws_client.cpp`). Every E/W/I log line also lands in a
+  static RAM ring (48 × 96 B). The backend sends `{type:"logs"}` on the encrypted channel and
+  the node answers with one frame: uptime, heap (free / largest block / min since boot),
+  reset reason, lines dropped, and the last lines as `"<uptime_s> <lvl> [tag] text"`.
+  Used by the tester programme ("send node logs") and by the "node went silent" diagnosis —
+  no serial cable needed. `LOGx` macros now go through `log_emit()`; serial output is unchanged.
+
 ## 0.89 — 2026-08-22
 - **WebSocket watchdog** (`ws_client.cpp`). A node could end up with WiFi alive but the
   WS client wedged — connected to nothing, retrying nothing — and stay silent for hours

@@ -32,6 +32,7 @@
 #include <WebSocketsClient.h>
 #include <Preferences.h>   // WD: epizod awarii przezywa restart (dowod dla ISP-down)
 #include <esp_random.h>
+#include <esp_system.h>   // esp_reset_reason — odpowiedź logs
 
 static WebSocketsClient ws;
 static bool             g_ws_connected = false;
@@ -428,6 +429,33 @@ static void on_monitor_clear(JsonDocument& doc) {
     monitors_on_clear((int32_t)(doc["id"] | 0));
 }
 
+// Logi na żądanie (v1.11+): BE (admin / tester przez /v1/diag) prosi o ostatnie linie z ringu w RAM.
+// Odpowiedź jedną ramką: {type:"logs", uptime_s, heap, blk, min, rst, dropped, lines:["<ts> <lvl> [tag] text", …]}.
+// Tylko na kanale enc — bez tego obcy serwer mógłby wyciągać szczegóły sieci domowej.
+static void on_logs(JsonDocument& doc) {
+    if (!cmd_enc_guard("logs")) return;
+    const char* lines[LOG_RING_LINES]; uint32_t ts[LOG_RING_LINES];
+    int n = log_ring_get(lines, ts, LOG_RING_LINES);
+    JsonDocument out;
+    out["type"]     = "logs";
+    out["req"]      = doc["req"] | "";
+    out["uptime_s"] = millis() / 1000;
+    out["heap"]     = ESP.getFreeHeap();
+    out["blk"]      = ESP.getMaxAllocHeap();
+    out["min"]      = log_heap_min();
+    out["rst"]      = (int)esp_reset_reason();
+    out["dropped"]  = log_ring_dropped();
+    JsonArray arr = out["lines"].to<JsonArray>();
+    for (int i = 0; i < n; i++) {
+        char l[LOG_RING_LEN + 12];
+        snprintf(l, sizeof(l), "%lu %s", (unsigned long)ts[i], lines[i]);
+        arr.add(l);
+    }
+    String s; serializeJson(out, s);
+    ws_client_send_raw(s.c_str());
+    LOGI("ws", "logs sent: %d lines", n);
+}
+
 // OTA (v0.35+): podpis BE nad parametrami weryfikuje ota_handle. Stary FW ignoruje typ.
 static void on_ota(JsonDocument& doc) {
     ota_handle(doc);
@@ -680,6 +708,7 @@ static const WsEntry WS_TABLE[] = {
     { "monitor_set",       on_monitor_set },
     { "monitor_clear",     on_monitor_clear },
     { "ota",               on_ota },
+    { "logs",              on_logs },
     { "tun_open",          on_tun_open },
     { "tun_close",         on_tun_close },
     { "fw_digest",         fw_digest_on_ws },

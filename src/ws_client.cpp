@@ -445,15 +445,21 @@ static void on_logs(JsonDocument& doc) {
     out["min"]      = log_heap_min();
     out["rst"]      = (int)esp_reset_reason();
     out["dropped"]  = log_ring_dropped();
+    // Ramka musi zmieścić się w buforze pieczętowania (TX_SCRATCH_LEN) — pełny ring (48 × ~110 B)
+    // go przekracza i seal padał po cichu. Bierzemy od najnowszej wstecz, ile wejdzie.
+    const size_t budget = TX_SCRATCH_LEN - 400;
+    size_t used = 0; int first = n;
+    while (first > 0 && used + strlen(lines[first - 1]) + 16 <= budget) { used += strlen(lines[first - 1]) + 16; first--; }
+    out["skipped"] = first;
     JsonArray arr = out["lines"].to<JsonArray>();
-    for (int i = 0; i < n; i++) {
+    for (int i = first; i < n; i++) {
         char l[LOG_RING_LEN + 12];
         snprintf(l, sizeof(l), "%lu %s", (unsigned long)ts[i], lines[i]);
         arr.add(l);
     }
     String s; serializeJson(out, s);
-    ws_client_send_raw(s.c_str());
-    LOGI("ws", "logs sent: %d lines", n);
+    bool ok = ws_client_send_raw(s.c_str());
+    LOGI("ws", "logs sent: %d/%d lines, %u B, ok=%d", n - first, n, (unsigned)s.length(), ok);
 }
 
 // OTA (v0.35+): podpis BE nad parametrami weryfikuje ota_handle. Stary FW ignoruje typ.

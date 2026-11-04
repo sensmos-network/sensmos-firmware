@@ -5,6 +5,11 @@ Firmware ships via **OTA** (app-only bins served by the backend) and the **web f
 This file is the version history reconstructed from commits. Current version:
 `FW_VERSION` in `src/data_sender.h`.
 
+## 1.12 — 2026-11-04
+- **Node logs fit the encrypted frame** (`ws_client.cpp`). The 1.11 reply with all 48 ring lines
+  (~5 KB) exceeded the 3 KB seal buffer, so the node sealed nothing and the backend timed out.
+  The reply now takes the newest lines that fit (`skipped` = how many older ones were left out).
+
 ## 1.11 — 2026-11-03
 - **Node logs on request** (`log.cpp`, `ws_client.cpp`). Every E/W/I log line also lands in a
   static RAM ring (48 × 96 B). The backend sends `{type:"logs"}` on the encrypted channel and

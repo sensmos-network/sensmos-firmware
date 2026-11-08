@@ -1,44 +1,57 @@
 #pragma once
-// Mapy rejestrów falowników (FC03, adresy dziesiętne). Źródła: kellerza/sunsynk definitions (single_phase.py,
-// three_phase_common.py, three_phase_lv.py), zgodne z home_assistant_solarman deye_sg04lp3.yaml i protokołem
-// Deye V119 (znak sieci: + pobór, − oddawanie). Zebrane 2026-11-08.
-// entity: natywna encja Sensmos (bez prefiksu pub.), "own.…" dla wartości spoza listy natywnych,
-// "grid_power" = moc sieci ze znakiem (rozbijana na grid_import/grid_export), "_pv" = składnik sumy pv_power.
-// Uwaga: rejestr 54 (1-faz.) = 1 oznacza moce sieci w jednostkach 10 W — rzadkie, nieobsłużone w wersji 1.
-// Znak baterii (+ rozładowanie u Deye) odwrócony skalą −1, bo w Sensmos batt_power: + ładowanie / − rozładowanie;
-// do potwierdzenia na żywym urządzeniu u pierwszego testera.
+// Presety list rejestrów (tylko przykłady do jednego kliknięcia — użytkownik może je dowolnie zmienić).
+// Adresy dziesiętne. Deye/Sunsynk: kellerza/sunsynk definitions (single_phase.py, three_phase_common.py),
+// zgodne z home_assistant_solarman deye_sg04lp3.yaml i protokołem Deye V119. Zebrane 2026-11-08.
+// ent: natywna encja Sensmos bez prefiksu pub., "own.…" poza listą natywnych, "" = own.mb_<nazwa>,
+// "grid_power" = moc sieci ze znakiem (→ grid_import/grid_export), "_pv" = składnik sumy pv_power.
+// Znak baterii Deye (+ rozładowanie) odwrócony skalą −1 (Sensmos: + ładowanie) — do potwierdzenia na żywym urządzeniu.
+// Typ: 0=u16 1=s16 2=u32 3=s32 4=f32 5=temp(surowe−1000).
 
-static const RegDef DEYE1[] = {
-    { "_pv",          186, R_U16,  1.0f,   "W"   },   // PV1
-    { "_pv",          187, R_U16,  1.0f,   "W"   },   // PV2
-    { "grid_power",   169, R_S16,  1.0f,   "W"   },
-    { "load_power",   178, R_S16,  1.0f,   "W"   },
-    { "batt_power",   190, R_S16, -1.0f,   "W"   },
-    { "batt_soc",     184, R_U16,  1.0f,   "%"   },
-    { "batt_v",       183, R_U16,  0.01f,  "V"   },
-    { "grid_v",       150, R_U16,  0.1f,   "V"   },
-    { "grid_freq",     79, R_U16,  0.01f,  "Hz"  },
-    { "pv_daily",     108, R_U16,  0.1f,   "kWh" },
-    { "own.inv_temp",  91, R_TEMP, 0.1f,   "°C"  },   // radiator; surowe − 1000
-    { "own.pv_total",  96, R_U32,  0.1f,   "kWh" },
+struct PresetReg { const char* name; const char* ent; uint16_t addr; uint8_t fc; uint8_t type; bool lo; float scale; const char* unit; };
+struct Preset    { const char* id; const char* label; const PresetReg* regs; uint8_t n; };
+
+static const PresetReg P_DEYE1[] = {
+    { "pv1",        "_pv",          186, 3, 0, false,  1.0f,  "W"   },
+    { "pv2",        "_pv",          187, 3, 0, false,  1.0f,  "W"   },
+    { "grid",       "grid_power",   169, 3, 1, false,  1.0f,  "W"   },
+    { "load",       "load_power",   178, 3, 1, false,  1.0f,  "W"   },
+    { "batt",       "batt_power",   190, 3, 1, false, -1.0f,  "W"   },
+    { "soc",        "batt_soc",     184, 3, 0, false,  1.0f,  "%"   },
+    { "batt_v",     "batt_v",       183, 3, 0, false,  0.01f, "V"   },
+    { "grid_v",     "grid_v",       150, 3, 0, false,  0.1f,  "V"   },
+    { "freq",       "grid_freq",     79, 3, 0, false,  0.01f, "Hz"  },
+    { "pv_today",   "pv_daily",     108, 3, 0, false,  0.1f,  "kWh" },
+    { "inv_temp",   "",              91, 3, 5, false,  0.1f,  "°C"  },
+    { "pv_total",   "",              96, 3, 2, true,   0.1f,  "kWh" },
 };
 
-static const RegDef DEYE3[] = {
-    { "_pv",          672, R_U16,  1.0f,   "W"   },
-    { "_pv",          673, R_U16,  1.0f,   "W"   },
-    { "grid_power",   625, R_S16,  1.0f,   "W"   },
-    { "load_power",   653, R_S16,  1.0f,   "W"   },
-    { "batt_power",   590, R_S16, -1.0f,   "W"   },
-    { "batt_soc",     588, R_U16,  1.0f,   "%"   },
-    { "batt_v",       587, R_U16,  0.01f,  "V"   },
-    { "grid_v",       598, R_U16,  0.1f,   "V"   },
-    { "grid_freq",    609, R_U16,  0.01f,  "Hz"  },
-    { "pv_daily",     529, R_U16,  0.1f,   "kWh" },
-    { "own.inv_temp", 541, R_TEMP, 0.1f,   "°C"  },
-    { "own.pv_total", 534, R_U32,  0.1f,   "kWh" },
+static const PresetReg P_DEYE3[] = {
+    { "pv1",        "_pv",          672, 3, 0, false,  1.0f,  "W"   },
+    { "pv2",        "_pv",          673, 3, 0, false,  1.0f,  "W"   },
+    { "grid",       "grid_power",   625, 3, 1, false,  1.0f,  "W"   },
+    { "load",       "load_power",   653, 3, 1, false,  1.0f,  "W"   },
+    { "batt",       "batt_power",   590, 3, 1, false, -1.0f,  "W"   },
+    { "soc",        "batt_soc",     588, 3, 0, false,  1.0f,  "%"   },
+    { "batt_v",     "batt_v",       587, 3, 0, false,  0.01f, "V"   },
+    { "grid_v",     "grid_v",       598, 3, 0, false,  0.1f,  "V"   },
+    { "freq",       "grid_freq",    609, 3, 0, false,  0.01f, "Hz"  },
+    { "pv_today",   "pv_daily",     529, 3, 0, false,  0.1f,  "kWh" },
+    { "inv_temp",   "",             541, 3, 5, false,  0.1f,  "°C"  },
+    { "pv_total",   "",             534, 3, 2, true,   0.1f,  "kWh" },
 };
 
-static const Model MODELS[] = {
-    { "deye1", "Deye/Sunsynk 1-phase hybrid (SG0xLP1)",    DEYE1, sizeof(DEYE1) / sizeof(DEYE1[0]) },
-    { "deye3", "Deye/Sunsynk 3-phase LV hybrid (SG04LP3)", DEYE3, sizeof(DEYE3) / sizeof(DEYE3[0]) },
+// Licznik energii Eastron SDM120 (FC04, float32, starsze słowo pierwsze) — popularny w PV i ładowarkach EV.
+static const PresetReg P_SDM[] = {
+    { "voltage",    "grid_v",         0, 4, 4, false,  1.0f,  "V"   },
+    { "current",    "",               6, 4, 4, false,  1.0f,  "A"   },
+    { "power",      "grid_power",    12, 4, 4, false,  1.0f,  "W"   },
+    { "freq",       "grid_freq",     70, 4, 4, false,  1.0f,  "Hz"  },
+    { "import_kwh", "",              72, 4, 4, false,  1.0f,  "kWh" },
+    { "export_kwh", "",              74, 4, 4, false,  1.0f,  "kWh" },
+};
+
+static const Preset PRESETS[] = {
+    { "deye1", "Deye/Sunsynk 1-phase hybrid",    P_DEYE1, sizeof(P_DEYE1) / sizeof(P_DEYE1[0]) },
+    { "deye3", "Deye/Sunsynk 3-phase LV hybrid", P_DEYE3, sizeof(P_DEYE3) / sizeof(P_DEYE3[0]) },
+    { "sdm",   "Eastron SDM120 meter (1-phase)",    P_SDM,   sizeof(P_SDM)   / sizeof(P_SDM[0])   },
 };

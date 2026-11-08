@@ -7,7 +7,7 @@ This file is the version history reconstructed from commits. Current version:
 
 ## 1.13 — 2026-11-08 (w testach)
 
-- **Falownik PV przez RS485 (Modbus RTU), tylko odczyt** (`modbus_inv.cpp`, mapy `modbus_maps.h`): Deye/Sunsynk 1-fazowy (SG0xLP1) i 3-fazowy LV (SG04LP3). Co 10 s pv_power (suma stringów), grid_import/grid_export (ze znaku mocy sieci), load_power, batt_power, batt_soc, batt_v, grid_v, grid_freq, pv_daily oraz own.inv_temp, own.pv_total. Domyślnie wyłączony; włączenie i piny z apki w LAN: `GET/POST /node/inverter` za PIN-em. Firmware nigdy nie zapisuje rejestrów falownika.
+- **Uniwersalny Modbus RTU (RS485)** (`modbus_rtu.cpp`): (1) most Modbus TCP → RTU na porcie 502 — Home Assistant (wbudowana integracja Modbus), Node-RED, SCADA rozmawiają przez nod z dowolnym urządzeniem RS485 (falownik, licznik, pompa ciepła, rekuperator); FC1–4 zawsze, zapis FC5/6/15/16 tylko po włączeniu `write`; (2) własna lista do 16 rejestrów (FC03/FC04; u16/s16/u32/s32/f32; kolejność słów; skala; jednostka) odpytywana co 10 s jako encje `own.mb_<nazwa>` albo natywne `pub.*`. Presety do jednego kliknięcia (`modbus_maps.h`): Deye/Sunsynk 1-faz., 3-faz. LV, licznik Eastron SDM120. Prędkość 1200–115200, parzystość N/E/O. Domyślnie wyłączone; config z apki w LAN: `GET/POST /node/modbus` za PIN-em.
 
 ## 1.12 — 2026-11-04
 - **Node logs fit the encrypted frame** (`ws_client.cpp`). The 1.11 reply with all 48 ring lines

@@ -7,7 +7,7 @@
 #include "pairing.h"
 #include "ext_auth.h"
 #include "mqtt_pub.h"
-#include "modbus_inv.h"
+#include "modbus_rtu.h"
 #include "config.h"
 #include "log.h"
 #include <ArduinoJson.h>
@@ -78,26 +78,20 @@ static void handle_mqtt_set() {
     server.send(200, "application/json", out);
 }
 
-// GET /node/inverter — config falownika + ostatnie odczyty (podgląd w LAN, bez internetu).
-// POST /node/inverter {"on":true,"model":"deye1","rx":16,"tx":17,"de":-1,"baud":9600,"slave":1} za PIN-em.
-static void handle_inverter_status() {
+// GET /node/modbus — config Modbus (most TCP:502 + lista rejestrów), presety, ostatnie wartości (LAN, bez internetu).
+// POST /node/modbus za PIN-em: {"on","bridge","write","rx","tx","de","baud","parity","slave","regs":[…]} albo {"preset":"deye1"}.
+static char s_mb_out[3072];
+static void handle_modbus_status() {
     if (!check_pin()) return;
-    char out[768];
-    modbus_inv_status_json(out, sizeof(out));
-    server.send(200, "application/json", out);
+    modbus_status_json(s_mb_out, sizeof(s_mb_out));
+    server.send(200, "application/json", s_mb_out);
 }
-static void handle_inverter_set() {
+static void handle_modbus_set() {
     if (!check_pin()) return;
-    JsonDocument doc;
-    if (deserializeJson(doc, server.arg("plain"))) {
-        server.send(400, "application/json", "{\"error\":\"bad json\"}"); return;
-    }
-    bool ok = modbus_inv_set_config(doc["on"] | false, doc["model"] | "", doc["rx"] | 16, doc["tx"] | 17,
-                                    doc["de"] | -1, doc["baud"] | 9600L, doc["slave"] | 1);
-    if (!ok) { server.send(400, "application/json", "{\"error\":\"unknown model or bad pins\"}"); return; }
-    char out[768];
-    modbus_inv_status_json(out, sizeof(out));
-    server.send(200, "application/json", out);
+    const char* err = modbus_set_config_json(server.arg("plain").c_str());
+    if (err) { snprintf(s_mb_out, sizeof(s_mb_out), "{\"error\":\"%s\"}", err); server.send(400, "application/json", s_mb_out); return; }
+    modbus_status_json(s_mb_out, sizeof(s_mb_out));
+    server.send(200, "application/json", s_mb_out);
 }
 
 // POST /factory-reset
@@ -354,8 +348,8 @@ void register_node_routes() {
     server.on("/node/reboot",    HTTP_POST,   handle_reboot);
     server.on("/node/mqtt",      HTTP_GET,    handle_mqtt_status);
     server.on("/node/mqtt",      HTTP_POST,   handle_mqtt_set);
-    server.on("/node/inverter",  HTTP_GET,    handle_inverter_status);
-    server.on("/node/inverter",  HTTP_POST,   handle_inverter_set);
+    server.on("/node/modbus",    HTTP_GET,    handle_modbus_status);
+    server.on("/node/modbus",    HTTP_POST,   handle_modbus_set);
     server.on("/node/log",       HTTP_GET,    handle_node_log);
     server.on("/node/pair",      HTTP_POST,   handle_pair_set);
     server.on("/node/pair",      HTTP_DELETE, handle_pair_clear);

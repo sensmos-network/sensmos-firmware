@@ -7,6 +7,7 @@
 #include "pairing.h"
 #include "ext_auth.h"
 #include "mqtt_pub.h"
+#include "modbus_inv.h"
 #include "config.h"
 #include "log.h"
 #include <ArduinoJson.h>
@@ -74,6 +75,28 @@ static void handle_mqtt_set() {
     mqtt_pub_set_config(on, host, port, user, pass);
     char out[256];
     mqtt_pub_status_json(out, sizeof(out));
+    server.send(200, "application/json", out);
+}
+
+// GET /node/inverter — config falownika + ostatnie odczyty (podgląd w LAN, bez internetu).
+// POST /node/inverter {"on":true,"model":"deye1","rx":16,"tx":17,"de":-1,"baud":9600,"slave":1} za PIN-em.
+static void handle_inverter_status() {
+    if (!check_pin()) return;
+    char out[768];
+    modbus_inv_status_json(out, sizeof(out));
+    server.send(200, "application/json", out);
+}
+static void handle_inverter_set() {
+    if (!check_pin()) return;
+    JsonDocument doc;
+    if (deserializeJson(doc, server.arg("plain"))) {
+        server.send(400, "application/json", "{\"error\":\"bad json\"}"); return;
+    }
+    bool ok = modbus_inv_set_config(doc["on"] | false, doc["model"] | "", doc["rx"] | 16, doc["tx"] | 17,
+                                    doc["de"] | -1, doc["baud"] | 9600L, doc["slave"] | 1);
+    if (!ok) { server.send(400, "application/json", "{\"error\":\"unknown model or bad pins\"}"); return; }
+    char out[768];
+    modbus_inv_status_json(out, sizeof(out));
     server.send(200, "application/json", out);
 }
 
@@ -331,6 +354,8 @@ void register_node_routes() {
     server.on("/node/reboot",    HTTP_POST,   handle_reboot);
     server.on("/node/mqtt",      HTTP_GET,    handle_mqtt_status);
     server.on("/node/mqtt",      HTTP_POST,   handle_mqtt_set);
+    server.on("/node/inverter",  HTTP_GET,    handle_inverter_status);
+    server.on("/node/inverter",  HTTP_POST,   handle_inverter_set);
     server.on("/node/log",       HTTP_GET,    handle_node_log);
     server.on("/node/pair",      HTTP_POST,   handle_pair_set);
     server.on("/node/pair",      HTTP_DELETE, handle_pair_clear);

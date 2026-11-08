@@ -19,6 +19,7 @@
 #include "src/monitors.h"
 #include "src/net_worker.h"
 #include "src/mqtt_pub.h"
+#include "src/modbus_inv.h"
 #include "src/wifi_env.h"
 #include "src/tunnel.h"
 #include "src/lora_scan.h"
@@ -176,6 +177,7 @@ void setup() {
             monitors_init();
             net_worker_init();   // po traceroute_init (w checknet_init) — worker używa traceroute
             mqtt_pub_init();     // klient MQTT (LEKKIE): config z NVS, publish do brokera w LAN
+            modbus_inv_init();   // falownik PV po RS485 (domyślnie wyłączony; config z apki w LAN)
             wifi_env_init();     // fingerprint otoczenia WiFi (hashe, skan na worze co 6h)
             pairing_init();      // klucze parowania z NVS — uprawnienie do tunelu (zastąpiły flagę remote_ok)
             tunnel_init();       // RemoteTerminal — RAM (~27KB) dopiero przy tun_open
@@ -211,6 +213,7 @@ void loop() {
         http_server_handle();
         ws_client_tick();
         mqtt_pub_tick();     // klient MQTT — nieblokujący (preflight sondą, publish z loop)
+        modbus_inv_tick();   // falownik: nieblokujący automat zapytanie → odpowiedź
         wifi_env_tick();     // fingerprint WiFi — planuje job "wenv" na worze
         ntp_tick();
         script_engine_tick();

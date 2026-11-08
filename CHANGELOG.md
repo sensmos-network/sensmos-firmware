@@ -5,6 +5,10 @@ Firmware ships via **OTA** (app-only bins served by the backend) and the **web f
 This file is the version history reconstructed from commits. Current version:
 `FW_VERSION` in `src/data_sender.h`.
 
+## 1.13 — 2026-11-08 (w testach)
+
+- **Falownik PV przez RS485 (Modbus RTU), tylko odczyt** (`modbus_inv.cpp`, mapy `modbus_maps.h`): Deye/Sunsynk 1-fazowy (SG0xLP1) i 3-fazowy LV (SG04LP3). Co 10 s pv_power (suma stringów), grid_import/grid_export (ze znaku mocy sieci), load_power, batt_power, batt_soc, batt_v, grid_v, grid_freq, pv_daily oraz own.inv_temp, own.pv_total. Domyślnie wyłączony; włączenie i piny z apki w LAN: `GET/POST /node/inverter` za PIN-em. Firmware nigdy nie zapisuje rejestrów falownika.
+
 ## 1.12 — 2026-11-04
 - **Node logs fit the encrypted frame** (`ws_client.cpp`). The 1.11 reply with all 48 ring lines
   (~5 KB) exceeded the 3 KB seal buffer, so the node sealed nothing and the backend timed out.

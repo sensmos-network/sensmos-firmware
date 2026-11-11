@@ -14,7 +14,7 @@ Firmware that turns a cheap ESP32 into a **Sensmos** node — it reads sensors, 
 - **On-device identity** — each node generates a secp256k1 keypair locally and **signs every data batch**. The private key never ships in the firmware image.
 - **Provisioning & trust** — BLE setup (WiFi credentials, wallet pairing) and a timed Bluetooth **attestation** ceremony proving the node is physical (anti-sybil).
 - **Edge script engine** — up to 4-step rules (`if → action`): webhook, push, web fetch, ping/monitor, or a message to another node — all running locally, no cloud.
-- **Local HTTP API** — read/write entities directly on the LAN (used by the [Home Assistant integration](https://github.com/Galusz/sensmos-homeassistant) and ESPHome setups).
+- **Local HTTP API** — read/write entities directly on the LAN (used by the [Home Assistant integration](https://github.com/sensmos-network/sensmos-homeassistant) and ESPHome setups).
 
 ## Flash it
 
@@ -40,9 +40,10 @@ src/
 | | |
 |---|---|
 | 🌐 Website | https://sensmos.com |
-| 📱 App | https://github.com/Galusz/sensmos-app |
-| 🏠 Home Assistant | https://github.com/Galusz/sensmos-homeassistant |
-| 📜 Protocol | https://github.com/Galusz/sensmos-protocol |
+| 📱 App | https://github.com/sensmos-network/sensmos-app |
+| 🏠 Home Assistant | https://github.com/sensmos-network/sensmos-homeassistant |
+| 🧩 Hub (node in Docker / HA add-on) | https://github.com/sensmos-network/sensmos-hub |
+| 📜 Protocol | https://github.com/sensmos-network/sensmos-protocol |
 | 💬 Discord | https://discord.gg/ukea386Kqx |
 
 GALU runs on Polygon. © 2026 Sensmos.

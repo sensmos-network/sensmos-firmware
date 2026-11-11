@@ -130,14 +130,33 @@ static bool parse_regs(JsonArrayConst a) {
     return true;
 }
 
+static void reg_from_preset(Reg& r, const PresetReg& q) {
+    strlcpy(r.name, q.name, sizeof(r.name)); strlcpy(r.ent, q.ent, sizeof(r.ent));
+    r.slave = 0; r.fc = q.fc; r.type = q.type; r.lo = q.lo; r.addr = q.addr; r.scale = q.scale;
+    strlcpy(r.unit, q.unit, sizeof(r.unit));
+}
+
 static void load_preset(const Preset& p) {
     s_n = 0;
-    for (uint8_t i = 0; i < p.n && i < MAX_REGS; i++) {
-        const PresetReg& q = p.regs[i]; Reg& r = s_regs[s_n++];
-        strlcpy(r.name, q.name, sizeof(r.name)); strlcpy(r.ent, q.ent, sizeof(r.ent));
-        r.slave = 0; r.fc = q.fc; r.type = q.type; r.lo = q.lo; r.addr = q.addr; r.scale = q.scale;
-        strlcpy(r.unit, q.unit, sizeof(r.unit));
+    for (uint8_t i = 0; i < p.n && i < MAX_REGS; i++) reg_from_preset(s_regs[s_n++], p.regs[i]);
+}
+
+// 1.13 zapisywał w NVS rozwiniętą listę presetu (Deye: 12 rejestrów), nowsze presety mają ich więcej (błędy
+// falownika). Lista będąca dokładnym początkiem presetu dostaje brakujące rejestry; własne listy bez zmian.
+static bool extend_preset() {
+    for (const Preset& p : PRESETS) {
+        if (s_n == 0 || s_n >= p.n) continue;
+        bool same = true;
+        for (uint8_t i = 0; i < s_n && same; i++) {
+            const Reg& r = s_regs[i]; const PresetReg& q = p.regs[i];
+            same = r.addr == q.addr && r.fc == q.fc && r.type == q.type && r.lo == q.lo && r.slave == 0
+                && !strcmp(r.ent, q.ent) && !strcmp(r.name, q.name);
+        }
+        if (!same) continue;
+        for (uint8_t i = s_n; i < p.n && s_n < MAX_REGS; i++) reg_from_preset(s_regs[s_n++], p.regs[i]);
+        return true;
     }
+    return false;
 }
 
 static void cfg_to_json(JsonDocument& d) {
@@ -193,6 +212,12 @@ void modbus_init() {
     if (js.length()) {
         JsonDocument d;
         if (!deserializeJson(d, js)) apply_json(d);
+        if (extend_preset()) {
+            JsonDocument c; cfg_to_json(c);
+            String out; serializeJson(c, out);
+            Preferences w; w.begin("sensmos", false); w.putString("mb_cfg", out); w.end();
+            LOGI("modbus", "preset uzupełniony do %u rejestrów (nowe w tej wersji FW)", (unsigned)s_n);
+        }
     }
     memset(s_have, 0, sizeof(s_have));
     uart_open();
@@ -219,6 +244,15 @@ static void uart_send(const uint8_t* f, size_t n) {
     s_uart.write(f, n); s_uart.flush();
     if (s_de >= 0) digitalWrite(s_de, LOW);
     s_rx_len = 0; s_sent_at = millis();
+}
+
+// Słowa bitowe błędów falownika (own.inv_*, u32): dokładna liczba całkowita, bez zaokrąglenia floata powyżej 2^24.
+static void publish_bits(uint8_t i, const uint16_t* regs) {
+    const Reg& r = s_regs[i];
+    uint32_t w = r.lo ? ((uint32_t)regs[1] << 16 | regs[0]) : ((uint32_t)regs[0] << 16 | regs[1]);
+    s_vals[i] = (float)w; s_have[i] = true;
+    char buf[16]; snprintf(buf, sizeof(buf), "%lu", (unsigned long)w);
+    entity_push(r.ent, buf, r.unit);
 }
 
 static void publish(uint8_t i, float v) {
@@ -330,7 +364,8 @@ void modbus_tick() {
     int words = r.type >= 2 && r.type <= 4 ? 2 : 1;
     uint16_t regs[2] = { 0, 0 };
     if (done && modbus_parse_read(s_rx_buf, s_rx_len, r.slave ? r.slave : (uint8_t)s_slave, r.fc, regs, 2) == words) {
-        publish(s_idx, modbus_decode(regs, r.type, r.lo) * r.scale);
+        if (r.type == 2 && !strncmp(r.ent, "own.inv_", 8)) publish_bits(s_idx, regs);
+        else publish(s_idx, modbus_decode(regs, r.type, r.lo) * r.scale);
         s_ok++; s_last_ok = now;
     } else {
         s_err++;

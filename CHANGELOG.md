@@ -5,11 +5,13 @@ Firmware ships via **OTA** (app-only bins served by the backend) and the **web f
 This file is the version history reconstructed from commits. Current version:
 `FW_VERSION` in `src/data_sender.h`.
 
-## Następna wersja (w przygotowaniu)
+## 1.14 — 2026-11-14 (w testach)
+
+Zawiera całe 1.13 (Modbus RTU, odczyt Deye/Sunsynk, wciąż niezweryfikowany na prawdziwym falowniku).
 
 - **Dodawanie noda z komputera przez USB** (`usb_provision.cpp`). Trzy nowe komendy portu szeregowego dla strony `sensmos.com/my/add/` (Web Serial w Chrome/Edge): `usb_register` (właściciel + WiFi, podpis kluczem noda w tym samym kształcie co BLE `register`), `usb_round` (rundy timing jak `trust_round`) i `usb_sign` (atest `{"v":3,"via":"usb",…}` z pozycją z przeglądarki; pole `via` nie pozwala przenieść podpisu do ceremonii BLE). Zmiana właściciela już przypisanego noda wymaga PIN-u noda. Serwer (`POST /v1/attest/usb`) sprawdza dodatkowo, że przeglądarka i nod wychodzą z tego samego IP, i trzyma noda w kwarantannie do 7 dni zgodnej lokalizacji. Ścieżki OTA, WiFi i BLE bez zmian; bufory na heapie tylko na czas komendy.
 
-## 1.13 — 2026-11-08 (w testach)
+## 1.13 — 2026-11-08 (beta na kanale tester, bez fal; zastąpiona przez 1.14)
 
 - **Uniwersalny Modbus RTU (RS485)** (`modbus_rtu.cpp`): (1) most Modbus TCP → RTU na porcie 502 — Home Assistant (wbudowana integracja Modbus), Node-RED, SCADA rozmawiają przez nod z dowolnym urządzeniem RS485 (falownik, licznik, pompa ciepła, rekuperator); FC1–4 zawsze, zapis FC5/6/15/16 tylko po włączeniu `write`; (2) własna lista do 16 rejestrów (FC03/FC04; u16/s16/u32/s32/f32; kolejność słów; skala; jednostka) odpytywana co 10 s jako encje `own.mb_<nazwa>` albo natywne `pub.*`. Presety do jednego kliknięcia (`modbus_maps.h`): Deye/Sunsynk 1-faz., 3-faz. LV, licznik Eastron SDM120. Prędkość 1200–115200, parzystość N/E/O. Domyślnie wyłączone; config z apki w LAN: `GET/POST /node/modbus` za PIN-em.
 

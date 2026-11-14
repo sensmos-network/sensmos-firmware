@@ -6,6 +6,7 @@
 #include "wifi_manager.h"
 #include "http_server.h"
 #include "lora_scan.h"
+#include "usb_provision.h"
 #include <ArduinoJson.h>
 #include <Preferences.h>
 
@@ -141,6 +142,7 @@ static void cmd_help(JsonDocument& doc, const char* cmd) {
     Serial.println("  {\"cmd\":\"unregister\",\"owner\":\"0x...\"}");
     Serial.println("  {\"cmd\":\"get_info\"}");
     Serial.println("  {\"cmd\":\"get_token\"}");
+    Serial.println("  {\"cmd\":\"usb_register\"|\"usb_round\"|\"usb_sign\"}  <- USB onboarding");
     Serial.println("  {\"cmd\":\"factory_reset\"}  <- serial only");
     Serial.println("  {\"cmd\":\"help\"}            <- serial only\n");
 }
@@ -195,6 +197,9 @@ static const CmdEntry CMD_TABLE[] = {
     { "help",            cmd_help },
     { "get_webhook",     cmd_get_message_config },
     { "get_message_config", cmd_get_message_config },
+    { "usb_register",    usb_cmd_register },   // dodawanie przez USB (sensmos.com/my/add/)
+    { "usb_round",       usb_cmd_round },
+    { "usb_sign",        usb_cmd_sign },
 #if LORA_ENABLED
     { "lora",            cmd_lora },
 #endif

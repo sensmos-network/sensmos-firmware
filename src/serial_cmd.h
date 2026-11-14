@@ -23,6 +23,7 @@
 // Dodatkowe komendy tylko przez Serial (nie przez BLE):
 //   {"cmd":"factory_reset"}
 //   {"cmd":"help"}
+//   {"cmd":"usb_register"|"usb_round"|"usb_sign",...}  dodawanie przez USB, opis w usb_provision.cpp
 
 void serial_cmd_init();
 void serial_cmd_tick();

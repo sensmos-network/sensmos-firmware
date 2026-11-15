@@ -48,7 +48,7 @@ $fqbns = [ordered]@{
 # osobnego builda per plytka. Nowa plytka = wiersz w LORA_PINOUTS, nie nowy target.
 $defines = @{
   'esp32s3-lora' = '-DLORA_ENABLED=1'
-  'esp32s3-kom'  = '-DSENSMOS_KOM=1'
+  'esp32s3-kom'  = '-DSENSMOS_KOM=1 -DWIRELESS_PAPER'
 }
 
 # Domyslnie TYLKO flota — warianty radiowe trzeba wybrac jawnie albo wziac 'all',

@@ -20,6 +20,8 @@ static uint8_t  s_tries = 0;
 static uint32_t s_retry_at = 0, s_poll_at = 0;
 static char     s_text[KOM_TEXT_MAX + 1];
 static uint32_t s_last_crc = 0;             // ta sama ramka z domu dwa razy = jedna
+static KomPing  s_ping = {};
+static uint32_t s_ping_cnt = 0, s_ping_at = 0;
 
 static bool due(uint32_t now, uint32_t t) { return (int32_t)(now - t) >= 0; }
 
@@ -110,8 +112,27 @@ int32_t kom_home_send(const char* text, uint32_t* n) {
     return r;
 }
 
-bool kom_home_rx(const uint8_t* b, size_t n, uint32_t now) {
-    (void)now;
+int32_t kom_home_ping(uint32_t* n) {
+    if (!g_home.set) return -3;
+    if (!kom_radio_ok()) return -2;
+    if (s_ping.st == 1) return -5;
+    char p[24];
+    const uint32_t pn = KOM_PING_BASE + ++s_ping_cnt;
+    snprintf(p, sizeof(p), "t #%lu", (unsigned long)pn);
+    int32_t r = tx_payload(p);
+    if (r < 0) { s_ping_cnt--; return r; }
+    s_ping = {};
+    s_ping.n = pn; s_ping.st = 1;
+    s_ping_at = millis();
+    kom_radio_listen_up(KOM_HOME_PING_MS);
+    Serial.printf("[kom] test zasiegu #%lu: %ld ms w eterze\n", (unsigned long)pn, (long)r);
+    if (n) *n = pn;
+    return r;
+}
+
+const KomPing& kom_home_ping_last() { return s_ping; }
+
+bool kom_home_rx(const uint8_t* b, size_t n, uint32_t now, float rssi, float snr) {
     if (!g_home.set) return false;
     char p[KOM_D_PAYLOAD_MAX + 1];
     int pn = kom_dframe_open(b, n, g_home.id4, g_home.sub, g_home.key, ctr_mbed, (uint8_t*)p, sizeof(p));
@@ -122,6 +143,12 @@ bool kom_home_rx(const uint8_t* b, size_t n, uint32_t now) {
     uint32_t ack; const char* reply;
     kom_home_parse(p, &ack, &reply);
     Serial.printf("[kom] z domu: ack #%lu%s\n", (unsigned long)ack, reply ? ", z odpowiedzia" : "");
+    if (ack && ack == s_ping.n && s_ping.st == 1) {         // odpowiedź na test zasięgu: bez wpisu w skrzynce
+        s_ping.st = 2; s_ping.rssi = rssi; s_ping.snr = snr; s_ping.rtt_ms = now - s_ping_at;
+        Serial.printf("[kom] test zasiegu #%lu: OK, RSSI %.0f, SNR %.1f, %lu ms\n", (unsigned long)ack, rssi, snr,
+                      (unsigned long)s_ping.rtt_ms);
+        if (!reply) return true;
+    }
     if (ack && ack == s_n && s_state == H_WAIT) {
         s_state = H_OK;
         kom_box_note(false, "Dom: odebrane");
@@ -139,6 +166,7 @@ bool kom_home_rx(const uint8_t* b, size_t n, uint32_t now) {
 
 void kom_home_tick(uint32_t now) {
     if (!g_home.set) return;
+    if (s_ping.st == 1 && now - s_ping_at > KOM_HOME_PING_MS) s_ping.st = 3;
     if (s_state == H_WAIT && due(now, s_retry_at)) {
         if (s_tries >= KOM_HOME_TRIES) {
             s_state = H_FAIL;

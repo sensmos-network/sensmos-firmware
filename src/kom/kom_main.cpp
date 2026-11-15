@@ -364,7 +364,7 @@ static void rx_tick(uint32_t now) {
     bool mine = n >= 19 && b[0] == 0xE0 && b[1] == 0x04 && !memcmp(b + 3, g_kom.id4, 4);
     Serial.printf("[kom] RX %u B, RSSI %.0f, SNR %.1f, %02x %02x%s\n", (unsigned)n, rssi, snr, b[0], n > 1 ? b[1] : 0,
                   mine ? " -> DO MNIE" : "");
-    if (n >= 17 && b[0] == 0xE0 && b[1] == 0x02) { kom_home_rx(b, n, now); return; }   // ramka DATA: tylko z domu
+    if (n >= 17 && b[0] == 0xE0 && b[1] == 0x02) { kom_home_rx(b, n, now, rssi, snr); return; }   // ramka DATA: tylko z domu
     if (mine && !memcmp(b + 7, g_kom.id4, 4)) on_down(b, n, now);
     if (n >= 19 && n <= KOM_FRAME_MAX && b[0] == 0xE0 && b[1] == 0x04 && (b[2] & 3) != KOM_MODE_HELLO) for_app(b, n, rssi, now);
     if (n >= 13 && b[0] == 0xE0 && b[1] == 0x04) near_hello(b, n, rssi, now);

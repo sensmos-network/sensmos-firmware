@@ -117,6 +117,12 @@ static const char* run(const char* cmd, JsonDocument& q, JsonDocument& r) {
             for (int i = 0; i < 4; i++) snprintf(hid + 2 * i, 3, "%02x", g_home.id4[i]);
             r["home_id8"] = (const char*)hid; r["home_sub"] = g_home.sub; r["home_poll"] = g_home.poll_min;
             r["home_state"] = kom_home_state(); r["home_n"] = kom_home_last();
+            const KomPing& pg = kom_home_ping_last();
+            if (pg.n) {
+                JsonObject t = r["home_ping"].to<JsonObject>();
+                t["n"] = pg.n; t["st"] = pg.st == 1 ? "wait" : pg.st == 2 ? "ok" : "fail";
+                if (pg.st == 2) { t["rssi"] = (int)pg.rssi; t["snr"] = pg.snr; t["rtt_ms"] = pg.rtt_ms; }
+            }
         } else {
             r["home_id8"] = nullptr;
         }
@@ -165,6 +171,13 @@ static const char* run(const char* cmd, JsonDocument& q, JsonDocument& r) {
         int32_t air = kom_home_send(q["text"] | "", &hn);
         if (air < 0) return air == -1 ? "budget" : air == -3 ? "home" : air == -4 ? "text" : air == -5 ? "busy" : "radio";
         r["n"] = hn; r["air_ms"] = air;
+        return nullptr;
+    }
+    if (!strcmp(cmd, "hping")) {                                  // test zasięgu do domu: wynik w info.home_ping
+        uint32_t pn = 0;
+        int32_t air = kom_home_ping(&pn);
+        if (air < 0) return air == -1 ? "budget" : air == -3 ? "home" : air == -5 ? "busy" : "radio";
+        r["n"] = pn; r["air_ms"] = air;
         return nullptr;
     }
     if (!strcmp(cmd, "set")) {

@@ -7,6 +7,7 @@
 #include "kom_radio.h"
 #include "kom_ui.h"
 #include "kom_app.h"
+#include "kom_home.h"
 #include "kom_lang.h"
 #include <Arduino.h>
 #include <NimBLEDevice.h>
@@ -111,6 +112,14 @@ static const char* run(const char* cmd, JsonDocument& q, JsonDocument& r) {
         char pub[65];
         for (int i = 0; i < 32; i++) snprintf(pub + 2 * i, 3, "%02x", g_kom.pub[i]);
         r["pub"] = (const char*)pub;
+        if (g_home.set) {
+            char hid[9];
+            for (int i = 0; i < 4; i++) snprintf(hid + 2 * i, 3, "%02x", g_home.id4[i]);
+            r["home_id8"] = (const char*)hid; r["home_sub"] = g_home.sub; r["home_poll"] = g_home.poll_min;
+            r["home_state"] = kom_home_state(); r["home_n"] = kom_home_last();
+        } else {
+            r["home_id8"] = nullptr;
+        }
         if (g_app.set) {
             char aid[9];
             for (int i = 0; i < 4; i++) snprintf(aid + 2 * i, 3, "%02x", g_app.id4[i]);
@@ -140,6 +149,22 @@ static const char* run(const char* cmd, JsonDocument& q, JsonDocument& r) {
         int32_t air = kom_send_msg(t, &seq);
         if (air < 0) return air == -1 ? "budget" : air == -4 ? "text" : "radio";
         r["seq"] = seq; r["air_ms"] = air;
+        return nullptr;
+    }
+    if (!strcmp(cmd, "home")) {                                   // {"cmd":"home","id8","key","sub","poll"}; bez id8 = wyłącz
+        const char* id8 = q["id8"] | "";
+        if (!id8[0]) { kom_home_clear(); return nullptr; }
+        JsonVariantConst sub = q["sub"], poll = q["poll"];
+        if (!sub.is<uint8_t>() || !sub.as<uint8_t>()) return "sub";
+        if (!poll.isNull() && (!poll.is<uint8_t>() || poll.as<uint8_t>() > 120)) return "poll";
+        if (!kom_home_set(id8, q["key"] | "", sub.as<uint8_t>(), poll | (uint8_t)0)) return "home";
+        return nullptr;
+    }
+    if (!strcmp(cmd, "hsend")) {                                  // wiadomość do domu bez internetu
+        uint32_t hn = 0;
+        int32_t air = kom_home_send(q["text"] | "", &hn);
+        if (air < 0) return air == -1 ? "budget" : air == -3 ? "home" : air == -4 ? "text" : air == -5 ? "busy" : "radio";
+        r["n"] = hn; r["air_ms"] = air;
         return nullptr;
     }
     if (!strcmp(cmd, "set")) {

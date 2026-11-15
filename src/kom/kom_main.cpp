@@ -10,6 +10,7 @@
 #include "kom_app.h"
 #include "kom_lang.h"
 #include "kom_fixture.h"
+#include "kom_home.h"
 #include <Arduino.h>
 #include <Preferences.h>
 
@@ -77,6 +78,11 @@ static const KomMsg* box_add(bool out, const char* text, uint32_t now) {
     m.seq = s_seq; m.out = out; m.at = now;
     strlcpy(m.text, text, sizeof(m.text));
     return &m;
+}
+
+void kom_box_note(bool out, const char* text) {
+    const KomMsg* m = box_add(out, text, millis());
+    if (!out) kom_ble_msg_event(m);
 }
 
 uint8_t kom_msgs(uint32_t after, const KomMsg* out[], uint8_t cap, bool* more) {
@@ -358,6 +364,7 @@ static void rx_tick(uint32_t now) {
     bool mine = n >= 19 && b[0] == 0xE0 && b[1] == 0x04 && !memcmp(b + 3, g_kom.id4, 4);
     Serial.printf("[kom] RX %u B, RSSI %.0f, SNR %.1f, %02x %02x%s\n", (unsigned)n, rssi, snr, b[0], n > 1 ? b[1] : 0,
                   mine ? " -> DO MNIE" : "");
+    if (n >= 17 && b[0] == 0xE0 && b[1] == 0x02) { kom_home_rx(b, n, now); return; }   // ramka DATA: tylko z domu
     if (mine && !memcmp(b + 7, g_kom.id4, 4)) on_down(b, n, now);
     if (n >= 19 && n <= KOM_FRAME_MAX && b[0] == 0xE0 && b[1] == 0x04 && (b[2] & 3) != KOM_MODE_HELLO) for_app(b, n, rssi, now);
     if (n >= 13 && b[0] == 0xE0 && b[1] == 0x04) near_hello(b, n, rssi, now);
@@ -396,8 +403,16 @@ static void serial_tick() {
             if (kom_hex(line + 7, o, 20)) kom_pair_owner(o);
         } else if (!strcmp(line, "hello")) {
             kom_request_hello();
+        } else if (!strncmp(line, "home ", 5)) {                 // home <id8> <sub> <fraza> | home off
+            char id8[9] = {0}; unsigned sub = 0; int used = 0;
+            if (!strcmp(line + 5, "off")) { kom_home_clear(); Serial.println("[kom] dom: wylaczony"); }
+            else if (sscanf(line + 5, "%8s %u %n", id8, &sub, &used) == 2 && used > 0 && sub <= 255 &&
+                     kom_home_set(id8, line + 5 + used, (uint8_t)sub, 0)) { }
+            else Serial.println("[kom] dom: home <id8> <sub 1-255> <fraza min. 8 znakow>");
+        } else if (!strncmp(line, "dom ", 4)) {
+            Serial.printf("[kom] dom: %ld\n", (long)kom_home_send(line + 4));
         } else if (line[0]) {
-            Serial.println("[kom] komendy: status | msg <tekst> | pair 0x<portfel> | hello");
+            Serial.println("[kom] komendy: status | msg <tekst> | pair 0x<portfel> | hello | home <id8> <sub> <fraza> | dom <tekst>");
         }
     }
 }
@@ -420,6 +435,7 @@ void kom_setup() {
     if (!kom_id_init(kom_radio_random)) { s_selftest = false; Serial.println("[kom] klucz: blad"); }
     kom_store_load();
     kom_app_load();
+    kom_home_load();
     { Preferences p; p.begin("sensmos_kom", true); s_dn_hi = p.getUInt("dnhi", 0); p.end(); }
     kom_id8(s_id8);
     kom_fingerprint(s_fp);
@@ -437,6 +453,7 @@ void kom_loop() {
     hello_tick(now);
     advert_tick(now);
     pair_tick(now);
+    kom_home_tick(now);
     if (due(now, s_msg_until) && due(now, s_draw_at)) {
         KomUiState s = { s_id8, s_fp, kom_radio_board(), kom_radio_ok(), s_selftest,
                          s_rx_n, s_rx_rssi, s_hello_n, s_hello_any ? (now - s_hello_at) / 1000 : UINT32_MAX,

@@ -11,6 +11,8 @@ const char* kom_radio_board();
 void     kom_radio_random(uint8_t* buf, size_t n);          // szum szerokopasmowy SX1262
 int32_t  kom_radio_send_up(const uint8_t* f, size_t n);     // airtime ms; -1 brak budżetu, -2 błąd radia
 int32_t  kom_radio_send_direct(const uint8_t* f, size_t n); // jw., na 869.525 SF9
+void     kom_radio_listen_up(uint32_t ms);                // przez ms odbiór na 868.1 SF11 zamiast 869.525
+bool     kom_radio_listening_up();
 bool     kom_radio_poll(uint8_t* buf, size_t cap, size_t* len, float* rssi, float* snr);
 uint32_t kom_radio_duty_ms();                                // zużyte ms nadawania w ostatnich 60 min
 uint32_t kom_radio_duty_dn_ms();                             // to samo dla 869.525

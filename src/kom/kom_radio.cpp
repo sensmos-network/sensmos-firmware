@@ -61,9 +61,13 @@ static bool try_pin(const LoraPinout& p) {
     return true;
 }
 
+// Okno odbioru na 868.1 (odpowiedź noda-bazy na wiadomość do domu); 0 = zwykły odbiór na 869.525.
+static uint32_t s_up_until = 0;
+
 static void back_to_rx() {
-    s_r->setFrequency(KOM_DN_FREQ);
-    s_r->setSpreadingFactor(KOM_DN_SF);
+    const bool up = s_up_until && (int32_t)(s_up_until - millis()) > 0;
+    s_r->setFrequency(up ? KOM_UP_FREQ : KOM_DN_FREQ);
+    s_r->setSpreadingFactor(up ? KOM_UP_SF : KOM_DN_SF);
     s_irq = false;                       // TxDone też podnosi DIO1 — to nie odbiór
     s_r->startReceive();
 }
@@ -124,8 +128,24 @@ int32_t kom_radio_send_direct(const uint8_t* f, size_t n) {
     return send_on(KOM_DN_FREQ, KOM_DN_SF, s_dbucket, KOM_DUTY_DN_MS_H, f, n);
 }
 
+void kom_radio_listen_up(uint32_t ms) {
+    if (!s_ok) return;
+    uint32_t until = millis() + ms;
+    if (!s_up_until || (int32_t)(until - s_up_until) > 0) s_up_until = until;
+    s_r->standby();
+    back_to_rx();
+    s_rx_started = true;
+}
+
+bool kom_radio_listening_up() { return s_up_until != 0; }
+
 bool kom_radio_poll(uint8_t* buf, size_t cap, size_t* len, float* rssi, float* snr) {
     ensure_rx();
+    if (s_ok && s_up_until && (int32_t)(millis() - s_up_until) >= 0 && !s_irq) {   // koniec okna → z powrotem 869.525
+        s_up_until = 0;
+        s_r->standby();
+        back_to_rx();
+    }
     if (!s_ok || !s_irq) return false;
     s_irq = false;
     size_t n = s_r->getPacketLength();

@@ -11,6 +11,7 @@
 #include "kom_lang.h"
 #include "kom_fixture.h"
 #include "kom_home.h"
+#include "kom_board.h"
 #include <Arduino.h>
 #include <Preferences.h>
 
@@ -145,6 +146,24 @@ struct KomBuf { uint8_t n; uint8_t f[KOM_FRAME_MAX]; };
 static KomBuf  s_buf[KOM_BUF_N];
 static uint8_t s_buf_head = 0, s_buf_n = 0;
 
+// Tablica ogłoszeń: tylko prawdziwe ogłoszenia grup tej apki (odcisk i tag kluczem grupy), nigdy cudze bajty.
+static void board_try(const uint8_t* b, size_t n, uint32_t now) {
+    if (!kom_board_on() || n < 19 || n > KOM_FRAME_MAX || b[0] != 0xE0 || b[1] != 0x04 || (b[2] & 3) != KOM_MODE_GROUP) return;
+    for (uint8_t i = 0; i < g_app.ng; i++) {
+        if (memcmp(b + 3, g_app.gid[i], 4)) continue;
+        char t[KOM_TEXT_MAX + 1];
+        if (kom_open_group(b, n, g_app.gkey[i], t, sizeof(t)) && kom_board_offer(b, n, now))
+            Serial.printf("[kom] tablica: nowe ogloszenie (%u na tablicy)\n", kom_board_count(now));
+        return;
+    }
+}
+
+void kom_board_save(bool on) {
+    Preferences p; p.begin("sensmos_kom", false); p.putBool("board", on); p.end();
+    kom_board_set(on, millis(), esp_random());
+    Serial.printf("[kom] tablica ogloszen: %s\n", on ? "wlaczona" : "wylaczona");
+}
+
 // Bezpośrednio na 869.525 (słyszą ją komunikatory w zasięgu) i do sieci na 868.1. Wynik = nadanie
 // bezpośrednie (albo do sieci, gdy bezpośrednie się nie udało).
 int32_t kom_raw_send(const uint8_t* f, size_t n) {
@@ -154,6 +173,7 @@ int32_t kom_raw_send(const uint8_t* f, size_t n) {
     digitalWrite(s_led, LOW);
     int32_t u = send_up(f, n);
     Serial.printf("[kom] ramka z apki %u B: radio %ld, siec %ld\n", (unsigned)n, (long)r, (long)u);
+    board_try(f, n, millis());                              // własne ogłoszenie też trafia na tablicę
     return r >= 0 ? r : u;
 }
 
@@ -367,6 +387,7 @@ static void rx_tick(uint32_t now) {
     if (n >= 17 && b[0] == 0xE0 && b[1] == 0x02) { kom_home_rx(b, n, now, rssi, snr); return; }   // ramka DATA: tylko z domu
     if (mine && !memcmp(b + 7, g_kom.id4, 4)) on_down(b, n, now);
     if (n >= 19 && n <= KOM_FRAME_MAX && b[0] == 0xE0 && b[1] == 0x04 && (b[2] & 3) != KOM_MODE_HELLO) for_app(b, n, rssi, now);
+    board_try(b, n, now);
     if (n >= 13 && b[0] == 0xE0 && b[1] == 0x04) near_hello(b, n, rssi, now);
     if (n >= 13 && b[0] == 0xE0 && b[1] == 0x05) near_infra(b, n, rssi, now);
 }
@@ -436,7 +457,7 @@ void kom_setup() {
     kom_store_load();
     kom_app_load();
     kom_home_load();
-    { Preferences p; p.begin("sensmos_kom", true); s_dn_hi = p.getUInt("dnhi", 0); p.end(); }
+    { Preferences p; p.begin("sensmos_kom", true); s_dn_hi = p.getUInt("dnhi", 0); kom_board_set(p.getBool("board", false), millis(), esp_random()); p.end(); }
     kom_id8(s_id8);
     kom_fingerprint(s_fp);
     s_next_full  = KOM_HELLO_FULL_MS;
@@ -454,6 +475,8 @@ void kom_loop() {
     advert_tick(now);
     pair_tick(now);
     kom_home_tick(now);
+    if (uint8_t bn = kom_board_tick(now, esp_random(), kom_radio_send_direct))
+        Serial.printf("[kom] tablica: powtorzone %u ogloszen(ia) na 869.525\n", bn);
     if (due(now, s_msg_until) && due(now, s_draw_at)) {
         KomUiState s = { s_id8, s_fp, kom_radio_board(), kom_radio_ok(), s_selftest,
                          s_rx_n, s_rx_rssi, s_hello_n, s_hello_any ? (now - s_hello_at) / 1000 : UINT32_MAX,

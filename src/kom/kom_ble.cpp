@@ -8,6 +8,7 @@
 #include "kom_ui.h"
 #include "kom_app.h"
 #include "kom_home.h"
+#include "kom_board.h"
 #include "kom_lang.h"
 #include <Arduino.h>
 #include <NimBLEDevice.h>
@@ -108,6 +109,7 @@ static const char* run(const char* cmd, JsonDocument& q, JsonDocument& r) {
         }
         r["radio"] = kom_radio_ok(); r["duty_ms"] = kom_radio_duty_ms(); r["duty_max"] = KOM_DUTY_UP_MS_H;
         r["pin_set"] = g_set.pin[0] != 0;
+        r["board"] = kom_board_on(); r["board_n"] = kom_board_count(millis());
         r["display"] = g_set.disp; r["display_on"] = kom_ui_display_name(); r["lang"] = kom_lang_name(g_set.lang);
         char pub[65];
         for (int i = 0; i < 32; i++) snprintf(pub + 2 * i, 3, "%02x", g_kom.pub[i]);
@@ -181,7 +183,8 @@ static const char* run(const char* cmd, JsonDocument& q, JsonDocument& r) {
         return nullptr;
     }
     if (!strcmp(cmd, "set")) {
-        JsonVariantConst n = q["name"], v = q["vis"], d = q["display"], lg = q["lang"];
+        JsonVariantConst n = q["name"], v = q["vis"], d = q["display"], lg = q["lang"], bd = q["board"];
+        if (!bd.isNull() && !bd.is<bool>()) return "board";
         if (!lg.isNull() && (!lg.is<const char*>() || kom_lang_code(lg.as<const char*>()) < 0)) return "lang";
         if (!n.isNull() && (!n.is<const char*>() || !name_ok(n.as<const char*>()))) return "name";
         if (!v.isNull() && (!v.is<uint8_t>() || v.as<uint8_t>() > 2)) return "vis";
@@ -189,6 +192,7 @@ static const char* run(const char* cmd, JsonDocument& q, JsonDocument& r) {
         if (!lg.isNull()) kom_lang_save((uint8_t)kom_lang_code(lg.as<const char*>()));   // ekran przerysuje się sam (zmiana treści)
         if (!n.isNull()) kom_name_save(n.as<const char*>());
         if (!v.isNull()) kom_vis_save(v.as<uint8_t>());
+        if (!bd.isNull()) kom_board_save(bd.as<bool>());            // tablica ogłoszeń osiedla (0.19-kom)
         if (!n.isNull() || !v.isNull()) kom_request_hello();
         if (!d.isNull() && d.as<uint8_t>() != g_set.disp) { kom_disp_save(d.as<uint8_t>()); s_restart = true; }   // inne piny/SPI — od nowa
         return nullptr;

@@ -23,3 +23,4 @@ bool     kom_frame_pop(uint8_t* f, size_t* n, bool* more);
 void     kom_show(const char* l1, const char* l2);     // ekran: ostatnia wiadomość z apki
 void     kom_box_note(bool out, const char* text);    // wpis do skrzynki + zdarzenie dla apki (np. „Dom: …”)
 void     kom_request_hello();               // pełne HELLO przy najbliższej okazji (po zmianie nazwy/widoczności)
+void     kom_board_save(bool on);           // tablica ogłoszeń osiedla wł./wył. (NVS, kom_board.h)

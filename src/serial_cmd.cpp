@@ -7,6 +7,7 @@
 #include "http_server.h"
 #include "lora_scan.h"
 #include "usb_provision.h"
+#include "gnss.h"
 #include <ArduinoJson.h>
 #include <Preferences.h>
 
@@ -153,6 +154,17 @@ static void cmd_get_message_config(JsonDocument& doc, const char* cmd) {
         cmd, cfg.c_str());
 }
 
+// {"cmd":"gnss"} = stan; {"cmd":"gnss","on":true,"rx":16,"baud":9600} = ustawienie (USB = fizyczny dostęp, jak set_wifi).
+static void cmd_gnss(JsonDocument& doc, const char* cmd) {
+    if (doc["on"].is<bool>() || doc["rx"].is<int>() || doc["baud"].is<int>()) {
+        String js; serializeJson(doc, js);
+        const char* err = gnss_set_config_json(js.c_str());
+        if (err) { serial_respond("error", cmd, err); return; }
+    }
+    char st[320]; gnss_status_json(st, sizeof(st));
+    Serial.printf("[serial] {\"status\":\"ok\",\"cmd\":\"%s\",\"gnss\":%s}\n", cmd, st);
+}
+
 #if LORA_ENABLED
 // Skany trwają od kilkunastu sekund (nasłuch) do kilku minut (łowca sync worda), więc
 // komenda tylko zleca robotę taskowi radia. Wyniki lecą logiem [lora], nie odpowiedzią.
@@ -200,6 +212,7 @@ static const CmdEntry CMD_TABLE[] = {
     { "usb_register",    usb_cmd_register },   // dodawanie przez USB (sensmos.com/my/add/)
     { "usb_round",       usb_cmd_round },
     { "usb_sign",        usb_cmd_sign },
+    { "gnss",            cmd_gnss },           // GPS na płytce (poziom lokalizacji ×1,1)
 #if LORA_ENABLED
     { "lora",            cmd_lora },
 #endif

@@ -5,6 +5,10 @@ Firmware ships via **OTA** (app-only bins served by the backend) and the **web f
 This file is the version history reconstructed from commits. Current version:
 `FW_VERSION` in `src/data_sender.h`.
 
+## 1.15 — (w przygotowaniu)
+
+- **GPS na płytce** (`gnss.cpp`). Opcjonalny moduł NMEA (NEO-6M/M8N, ATGM336H…) na UART1, domyślnie wyłączony. Włączenie: port szeregowy `{"cmd":"gnss","on":true,"rx":16,"baud":9600}` albo `POST /node/gnss` za PIN-em (`GET /node/gnss` = stan). Po ~1 min stabilnego fixu (≥5 satelitów, HDOP ≤3, w promieniu 200 m) nod wysyła po WS `{"type":"gnss","lat","lon","sats","hdop","stable_s"}` z pozycją przyciętą do 0,01° (~1 km), potem co 30 min. Fix niczego nie przesuwa: serwer tylko porównuje go z pozycją z ustawienia i podnosi poziom pewności lokalizacji (×1,1, z sąsiadem LoRa innego właściciela ×1,5). UART2 zostaje dla Modbus.
+
 ## 1.14 — 2026-11-14 (w testach)
 
 Zawiera całe 1.13 (Modbus RTU, odczyt Deye/Sunsynk, wciąż niezweryfikowany na prawdziwym falowniku).

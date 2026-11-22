@@ -21,6 +21,7 @@
 #include "src/mqtt_pub.h"
 #include "src/modbus_rtu.h"
 #include "src/wifi_env.h"
+#include "src/gnss.h"
 #include "src/tunnel.h"
 #include "src/lora_scan.h"
 #include "src/pairing.h"
@@ -178,6 +179,7 @@ void setup() {
             net_worker_init();   // po traceroute_init (w checknet_init) — worker używa traceroute
             mqtt_pub_init();     // klient MQTT (LEKKIE): config z NVS, publish do brokera w LAN
             modbus_init();   // Modbus RTU: most TCP:502 + lista rejestrów (domyślnie wyłączony; config z apki w LAN)
+            gnss_init();         // GPS na płytce (NMEA na UART1, domyślnie wyłączony)
             wifi_env_init();     // fingerprint otoczenia WiFi (hashe, skan na worze co 6h)
             pairing_init();      // klucze parowania z NVS — uprawnienie do tunelu (zastąpiły flagę remote_ok)
             tunnel_init();       // RemoteTerminal — RAM (~27KB) dopiero przy tun_open
@@ -214,6 +216,7 @@ void loop() {
         ws_client_tick();
         mqtt_pub_tick();     // klient MQTT — nieblokujący (preflight sondą, publish z loop)
         modbus_tick();   // Modbus: nieblokujący automat (most TCP ma pierwszeństwo)
+        gnss_tick();         // GPS na płytce: odczyt NMEA + raport stabilnego fixu po WS
         wifi_env_tick();     // fingerprint WiFi — planuje job "wenv" na worze
         ntp_tick();
         script_engine_tick();

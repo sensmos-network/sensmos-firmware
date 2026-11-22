@@ -8,6 +8,7 @@
 #include "ext_auth.h"
 #include "mqtt_pub.h"
 #include "modbus_rtu.h"
+#include "gnss.h"
 #include "config.h"
 #include "log.h"
 #include <ArduinoJson.h>
@@ -92,6 +93,21 @@ static void handle_modbus_set() {
     if (err) { snprintf(s_mb_out, sizeof(s_mb_out), "{\"error\":\"%s\"}", err); server.send(400, "application/json", s_mb_out); return; }
     modbus_status_json(s_mb_out, sizeof(s_mb_out));
     server.send(200, "application/json", s_mb_out);
+}
+
+// GET /node/gnss — GPS na płytce: config, fix, satelity (pozycja przycięta do 0,01°). POST za PIN-em: {"on","rx","baud"}.
+static char s_gn_out[320];
+static void handle_gnss_status() {
+    if (!check_pin()) return;
+    gnss_status_json(s_gn_out, sizeof(s_gn_out));
+    server.send(200, "application/json", s_gn_out);
+}
+static void handle_gnss_set() {
+    if (!check_pin()) return;
+    const char* err = gnss_set_config_json(server.arg("plain").c_str());
+    if (err) { snprintf(s_gn_out, sizeof(s_gn_out), "{\"error\":\"%s\"}", err); server.send(400, "application/json", s_gn_out); return; }
+    gnss_status_json(s_gn_out, sizeof(s_gn_out));
+    server.send(200, "application/json", s_gn_out);
 }
 
 // POST /factory-reset
@@ -350,6 +366,8 @@ void register_node_routes() {
     server.on("/node/mqtt",      HTTP_POST,   handle_mqtt_set);
     server.on("/node/modbus",    HTTP_GET,    handle_modbus_status);
     server.on("/node/modbus",    HTTP_POST,   handle_modbus_set);
+    server.on("/node/gnss",      HTTP_GET,    handle_gnss_status);
+    server.on("/node/gnss",      HTTP_POST,   handle_gnss_set);
     server.on("/node/log",       HTTP_GET,    handle_node_log);
     server.on("/node/pair",      HTTP_POST,   handle_pair_set);
     server.on("/node/pair",      HTTP_DELETE, handle_pair_clear);

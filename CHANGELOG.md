@@ -8,6 +8,7 @@ This file is the version history reconstructed from commits. Current version:
 ## 1.15 — 2026-11-22 (w testach)
 
 - **GPS na płytce** (`gnss.cpp`). Opcjonalny moduł NMEA (NEO-6M/M8N, ATGM336H…) na UART1, domyślnie wyłączony. Włączenie: port szeregowy `{"cmd":"gnss","on":true,"rx":16,"baud":9600}` albo `POST /node/gnss` za PIN-em (`GET /node/gnss` = stan). Po ~1 min stabilnego fixu (≥5 satelitów, HDOP ≤3, w promieniu 200 m) nod wysyła po WS `{"type":"gnss","lat","lon","sats","hdop","stable_s"}` z pozycją przyciętą do 0,01° (~1 km), potem co 30 min. Fix niczego nie przesuwa: serwer tylko porównuje go z pozycją z ustawienia i podnosi poziom pewności lokalizacji (×1,1, z sąsiadem LoRa innego właściciela ×1,5). UART2 zostaje dla Modbus.
+- **Modbus na ESP32-C3: jawnie nieobsługiwany** (`modbus_rtu.cpp`). C3 ma tylko UART0 i UART1 (UART1 = GPS), a Modbus potrzebuje UART2, więc od 1.13 na C3 dawał tylko ciche timeouty. Teraz `POST /node/modbus` z `on`/`bridge` zwraca 400 `{"error":"modbus_unsupported_chip"}`, `GET /node/modbus` ma `"supported":false`, a zapisany włączony config na C3 nie startuje odpytywania ani mostu TCP:502 (jeden LOGW przy starcie). Pozostałe płytki bez zmian.
 
 ## 1.14 — 2026-11-14
 

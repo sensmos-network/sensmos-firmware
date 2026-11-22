@@ -60,8 +60,13 @@ float modbus_decode(const uint16_t* regs, uint8_t type, bool lo_first) {
 #include <Preferences.h>
 #include <ArduinoJson.h>
 #include <WiFi.h>
+#include <soc/soc_caps.h>
 
 #include "modbus_maps.h"
+
+// ESP32-C3 ma tylko UART0 i UART1 (UART1 = GPS na płytce); UART2 dla RS485 nie istnieje, więc Modbus jest tam
+// jawnie nieobsługiwany zamiast cichych timeoutów (HardwareSerial(2).begin() na C3 tylko loguje błąd i nic nie otwiera).
+#define MB_SUPPORTED (SOC_UART_NUM >= 3)
 
 // ── Config ───────────────────────────────────────────────────────────────────
 static const int MAX_REGS = 16;   // = pojemność bufora own[] w entity_store
@@ -187,6 +192,7 @@ static const char* apply_json(const JsonDocument& d) {
     int rx = d["rx"] | s_rx, tx = d["tx"] | s_tx, de = d["de"] | s_de, sl = d["slave"] | s_slave;
     long baud = d["baud"] | s_baud;
     const char* par = d["parity"] | "";
+    if (!MB_SUPPORTED && (on || br)) return "modbus_unsupported_chip";
     if ((on || br) && (rx < 0 || tx < 0 || rx == tx || rx > 48 || tx > 48 || de > 48)) return "bad pins";
     if (baud < 1200 || baud > 115200) return "bad baud";
     if (sl < 1 || sl > 247) return "bad slave";
@@ -211,7 +217,11 @@ void modbus_init() {
     p.end();
     if (js.length()) {
         JsonDocument d;
-        if (!deserializeJson(d, js)) apply_json(d);
+        if (!deserializeJson(d, js)) {
+            if (!MB_SUPPORTED && ((d["on"] | false) || (d["bridge"] | false)))
+                LOGW("modbus", "zapisany config wlaczony, ale ten chip nie ma UART2: Modbus nieobsługiwany, nie startuje");
+            apply_json(d);
+        }
         if (extend_preset()) {
             JsonDocument c; cfg_to_json(c);
             String out; serializeJson(c, out);
@@ -377,6 +387,7 @@ void modbus_tick() {
 void modbus_status_json(char* out, size_t cap) {
     JsonDocument d;
     cfg_to_json(d);
+    d["supported"] = (bool)MB_SUPPORTED;
     d["port"] = 502; d["client"] = (bool)(s_cli && s_cli.connected());
     d["ok"] = s_ok; d["err"] = s_err; d["br_ok"] = s_br_ok; d["br_err"] = s_br_err;
     d["age_s"] = s_last_ok ? (long)((millis() - s_last_ok) / 1000) : -1;
